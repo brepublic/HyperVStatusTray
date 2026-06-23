@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using HyperVStatusTray.Protocol;
@@ -8,6 +9,8 @@ namespace HyperVStatusTray.UI;
 
 internal sealed class TrayApplicationContext : ApplicationContext
 {
+    private const string ConfigureVmsScriptName = "configure-vms.ps1";
+
     private readonly BrokerClient _brokerClient = new();
     private readonly SemaphoreSlim _pollGate = new(1, 1);
     private readonly CancellationTokenSource _cancellation = new();
@@ -196,9 +199,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add("立即刷新", null, async (_, _) => await PollAsync());
         menu.Items.Add("打开 Hyper-V 管理器", null, (_, _) => StartShell("virtmgmt.msc"));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("以管理员身份编辑配置文件", null, (_, _) => StartShellElevated("notepad.exe", ConfigService.ConfigPath));
+        menu.Items.Add("以管理员身份编辑配置文件", null, (_, _) => StartShellElevated("notepad.exe", QuoteArgument(ConfigService.ConfigPath)));
+        menu.Items.Add("重新配置VM监视", null, async (_, _) => await ReconfigureMonitoredVmsAsync());
         menu.Items.Add("重新加载配置", null, async (_, _) => await ReloadConfigurationAsync());
-        menu.Items.Add("打开日志目录", null, (_, _) => StartShell("explorer.exe", ConfigService.DataDirectory));
+        menu.Items.Add("打开配置目录", null, (_, _) => StartShell("explorer.exe", ConfigService.DataDirectory));
+        menu.Items.Add("打开Broker日志目录", null, (_, _) => StartShell("explorer.exe", AppPaths.MachineDataDirectory));
 
         _startupMenuItem = new ToolStripMenuItem("随 Windows 登录启动")
         {
@@ -266,6 +271,58 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         await PollAsync();
+    }
+
+    private async Task ReconfigureMonitoredVmsAsync()
+    {
+        string? scriptPath = FindConfigureVmsScriptPath();
+        if (scriptPath is null)
+        {
+            ShowError(
+                "无法重新配置VM监视",
+                new FileNotFoundException(
+                    $"找不到 {ConfigureVmsScriptName}。请确认程序安装目录中包含该脚本。"));
+            return;
+        }
+
+        try
+        {
+            using Process? process = StartShellElevated(
+                "powershell.exe",
+                $"-NoProfile -ExecutionPolicy Bypass -File {QuoteArgument(scriptPath)} -ConfigPath {QuoteArgument(ConfigService.ConfigPath)}");
+
+            if (process is null)
+            {
+                return;
+            }
+
+            await process.WaitForExitAsync(_cancellation.Token);
+
+            if (process.ExitCode != 0)
+            {
+                MessageBox.Show(
+                    $"{ConfigureVmsScriptName} 退出代码：{process.ExitCode}\n\n当前配置保持不变；如脚本已写入新配置，请检查后手动选择“重新加载配置”。",
+                    "重新配置VM监视失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
+            }
+
+            await ReloadConfigurationAsync();
+            _notifyIcon.ShowBalloonTip(2500, "Hyper-V 状态指示器", "VM监视配置已更新。", ToolTipIcon.Info);
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // Normal during application shutdown.
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            Logger.Info("重新配置VM监视已取消。");
+        }
+        catch (Exception ex)
+        {
+            ShowError("无法重新配置VM监视", ex);
+        }
     }
 
     private async Task ExecuteActionAsync(int index, VmAction action)
@@ -535,23 +592,49 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private static void StartShellElevated(string fileName, string? arguments = null)
+    private static Process? StartShellElevated(string fileName, string? arguments = null)
     {
         try
         {
-            Process.Start(new ProcessStartInfo
+            return Process.Start(new ProcessStartInfo
             {
                 FileName = fileName,
-                Arguments = arguments is null ? string.Empty : $"\"{arguments}\"",
+                Arguments = arguments ?? string.Empty,
                 UseShellExecute = true,
                 Verb = "runas"
             });
         }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            Logger.Info($"以管理员身份打开 {fileName} 已取消。");
+            return null;
+        }
         catch (Exception ex)
         {
             ShowError($"无法以管理员身份打开 {fileName}", ex);
+            return null;
         }
     }
+
+    private static string? FindConfigureVmsScriptPath()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            string candidate = Path.Combine(directory.FullName, ConfigureVmsScriptName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        string installedCandidate = Path.Combine(AppPaths.InstallDirectory, ConfigureVmsScriptName);
+        return File.Exists(installedCandidate) ? installedCandidate : null;
+    }
+
+    private static string QuoteArgument(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
 
     private static string CreateConfigSignature(AppConfig config)
     {

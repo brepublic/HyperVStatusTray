@@ -2,19 +2,35 @@
 .vscode/
 .agents/
 
-# Binaries
+# Build outputs
 build/
 dist/
 **/bin/
 **/obj/
 publish/
+dist/
+artifacts/
+TestResults/
 
-# User/local environment
-*.user
-*.suo
-.vs/
+# Installer/package outputs
+*.exe
+*.msi
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.zip
+*.7z
+*.tar
+*.gz
+*.nupkg
+*.snupkg
 
-# Logs and temporary files
+# .NET generated binaries/symbols
+*.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+
+# Local logs
 *.log
-*.tmp
-*.temp
