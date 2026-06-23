@@ -16,10 +16,7 @@ public static class ConfigService
 
         if (!File.Exists(ConfigPath))
         {
-            AppConfig defaults = AppConfig.CreateDefault();
-            defaults.Validate();
-            Save(defaults);
-            return defaults;
+            throw new InvalidDataException($"配置文件不存在：{ConfigPath}。请先运行 configure-vms.ps1 选择要监视的虚拟机。");
         }
 
         try
@@ -48,11 +45,7 @@ public static class ConfigService
                 backupPath = "（备份失败）";
             }
 
-            AppConfig defaults = AppConfig.CreateDefault();
-            defaults.Validate();
-            Save(defaults);
-            warning = $"配置文件无效，已恢复默认配置。\n\n原因：{ex.Message}\n备份：{backupPath}";
-            return defaults;
+            throw new InvalidDataException($"配置文件无效，未自动恢复默认配置。\n\n原因：{ex.Message}\n备份：{backupPath}\n请运行 configure-vms.ps1 重新选择要监视的虚拟机。", ex);
         }
     }
 

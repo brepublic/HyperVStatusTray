@@ -20,8 +20,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private ToolStripMenuItem? _startupMenuItem;
     private bool _suppressStartupToggle;
     private Icon? _currentIcon;
-    private IndicatorState? _lastFirstTrayIndicator;
-    private IndicatorState? _lastSecondTrayIndicator;
+    private string? _lastTrayIndicatorSignature;
     private string? _lastTooltipText;
     private string _configSignature;
     private static readonly TimeSpan PollFailureNotificationInterval = TimeSpan.FromMinutes(10);
@@ -369,29 +368,26 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateVisuals()
     {
-        if (_trackers.Count != 2)
-        {
-            return;
-        }
-
-        IndicatorState firstIndicator = _trackers[0].Current.Indicator;
-        IndicatorState secondIndicator = _trackers[1].Current.Indicator;
+        IndicatorState[] indicators = _trackers.Count == 0
+            ? [IndicatorState.Unknown]
+            : _trackers.Select(tracker => tracker.Current.Indicator).ToArray();
+        string indicatorSignature = string.Join(",", indicators);
         if (_currentIcon is null ||
-            _lastFirstTrayIndicator != firstIndicator ||
-            _lastSecondTrayIndicator != secondIndicator)
+            !string.Equals(_lastTrayIndicatorSignature, indicatorSignature, StringComparison.Ordinal))
         {
-            Icon newIcon = IconFactory.CreateTrayIcon(firstIndicator, secondIndicator);
+            Icon newIcon = IconFactory.CreateTrayIcon(indicators);
             Icon? oldIcon = _currentIcon;
             _currentIcon = newIcon;
             _notifyIcon.Icon = newIcon;
-            _lastFirstTrayIndicator = firstIndicator;
-            _lastSecondTrayIndicator = secondIndicator;
+            _lastTrayIndicatorSignature = indicatorSignature;
             oldIcon?.Dispose();
         }
 
-        string tooltip = string.Join(
-            "\n",
-            _trackers.Select(tracker => $"{tracker.Config.Label}: {tracker.Current.IndicatorText}"));
+        string tooltip = _trackers.Count == 0
+            ? "Hyper-V 状态指示器"
+            : string.Join(
+                "\n",
+                _trackers.Select(tracker => $"{tracker.Config.Label}: {tracker.Current.IndicatorText}"));
         string displayTooltip = tooltip.Length <= 63 ? tooltip : tooltip[..63];
         if (!string.Equals(_lastTooltipText, displayTooltip, StringComparison.Ordinal))
         {
@@ -404,7 +400,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void ApplyBrokerSnapshot(BrokerSnapshot snapshot)
     {
-        if (snapshot.Observations.Length != 2)
+        int vmCount = snapshot.Config.VirtualMachines.Count;
+        if (vmCount is < 1 or > 2 || snapshot.Observations.Length != vmCount)
         {
             throw new InvalidDataException("Broker 返回的虚拟机状态数量不正确。");
         }

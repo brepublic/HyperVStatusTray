@@ -10,25 +10,7 @@ public sealed class AppConfig
 
     public int MonitorFailureThreshold { get; set; } = 2;
 
-    public List<VmConfig> VirtualMachines { get; set; } =
-    [
-        new()
-        {
-            Name = "Fedora-OpenClaw",
-            Label = "Fedora-OpenClaw",
-            UseHeartbeat = true,
-            PingAddress = null,
-            PingTimeoutMilliseconds = 800
-        },
-        new()
-        {
-            Name = "Win11-Sandbox",
-            Label = "Win11-Sandbox",
-            UseHeartbeat = true,
-            PingAddress = null,
-            PingTimeoutMilliseconds = 800
-        }
-    ];
+    public List<VmConfig> VirtualMachines { get; set; } = [];
 
     public static AppConfig CreateDefault() => new();
 
@@ -54,19 +36,19 @@ public sealed class AppConfig
             throw new InvalidDataException("MonitorFailureThreshold 必须在 1 到 10 之间。");
         }
 
-        if (VirtualMachines is null || VirtualMachines.Count != 2)
+        if (VirtualMachines is null || VirtualMachines.Count is < 1 or > 2)
         {
-            throw new InvalidDataException("VirtualMachines 必须且只能包含两台虚拟机；第一台显示在上方，第二台显示在下方。");
+            throw new InvalidDataException("VirtualMachines 必须包含一台或两台虚拟机；一台时托盘显示一个圆点，两台时第一台显示在上方、第二台显示在下方。");
         }
 
+        HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
         foreach (VmConfig vm in VirtualMachines)
         {
             vm.Validate();
-        }
-
-        if (string.Equals(VirtualMachines[0].Name, VirtualMachines[1].Name, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException("两台虚拟机不能使用相同的 Name。");
+            if (!names.Add(vm.Name))
+            {
+                throw new InvalidDataException("虚拟机不能使用重复的 Name。");
+            }
         }
     }
 }

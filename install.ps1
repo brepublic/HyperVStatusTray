@@ -88,32 +88,13 @@ $InstalledBroker = Join-Path $InstallDirectory 'HyperVStatusTrayBroker.exe'
 $ConfigPath = Join-Path $DataDirectory 'config.json'
 $SecurityPath = Join-Path $DataDirectory 'broker-security.json'
 $CurrentUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$ConfigureScript = Join-Path $PSScriptRoot 'configure-vms.ps1'
 
-if (-not (Test-Path $ConfigPath)) {
-    $DefaultConfig = [ordered]@{
-        PollIntervalSeconds = 5
-        StartupTimeoutSeconds = 180
-        SignalLossGraceSeconds = 20
-        MonitorFailureThreshold = 2
-        VirtualMachines = @(
-            [ordered]@{
-                Name = 'Fedora-OpenClaw'
-                Label = 'Fedora-OpenClaw'
-                UseHeartbeat = $true
-                PingAddress = $null
-                PingTimeoutMilliseconds = 800
-            },
-            [ordered]@{
-                Name = 'Win11-Sandbox'
-                Label = 'Win11-Sandbox'
-                UseHeartbeat = $true
-                PingAddress = $null
-                PingTimeoutMilliseconds = 800
-            }
-        )
-    }
-    $DefaultConfig | ConvertTo-Json -Depth 8 | Set-Content -Path $ConfigPath -Encoding UTF8
+if (-not (Test-Path $ConfigureScript)) {
+    throw "Configuration script not found: $ConfigureScript"
 }
+
+& $ConfigureScript -ConfigPath $ConfigPath
 
 $SecurityConfig = [ordered]@{
     AllowedUserSid = $CurrentUserSid
