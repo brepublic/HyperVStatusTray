@@ -15,4 +15,9 @@
   <ItemGroup>
     <ProjectReference Include="..\shared\HyperVStatusTray.Shared.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\configure-vms.ps1" Link="configure-vms.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\PowerShellTui.psm1" Link="PowerShellTui.psm1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
