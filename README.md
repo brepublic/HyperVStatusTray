@@ -1,9 +1,10 @@
 # HyperVStatusTray
 
-Windows 11 上的 Hyper-V 双虚拟机托盘状态指示器。
+Windows 11 上的 Hyper-V 虚拟机托盘状态指示器。
 
-- 上圆点：`Fedora-OpenClaw`
-- 下圆点：`Win11-Sandbox`
+- 可监视一台或两台 Hyper-V 虚拟机
+- 一台虚拟机：托盘显示一个圆点
+- 两台虚拟机：第一台显示在上方，第二台显示在下方
 - 灰色：Off / Saved
 - 黄色：启动、停止、暂停、恢复中，或客户机暂未就绪
 - 绿色：Heartbeat 正常，或配置的 ICMP Ping 成功
@@ -42,7 +43,7 @@ NT SERVICE\HyperVStatusTrayBroker
 
 安装脚本会把该服务账户加入本机 `Hyper-V Administrators` 组。该账户拥有完整 Hyper-V 管理能力，但 broker 只暴露以下固定操作：
 
-- 查询两台配置内虚拟机状态
+- 查询配置内一台或两台虚拟机状态
 - 启动
 - 正常关机
 - 正常重启
@@ -70,7 +71,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install.ps1
 ```
 
-`install.ps1` 需要管理员权限；如果不是管理员运行，会请求 UAC 提升。默认发布自包含 `win-x64` 单文件版本，安装托盘程序和 broker 服务，并为当前用户写入 HKCU 登录启动项。
+`install.ps1` 需要管理员权限；如果不是管理员运行，会请求 UAC 提升。默认发布自包含 `win-x64` 单文件版本，安装托盘程序和 broker 服务，并为当前用户写入 HKCU 登录启动项。安装过程中会调用 `configure-vms.ps1` 查询当前系统中的 Hyper-V 虚拟机，并让你选择一台或两台作为监视对象。
 
 只构建、不安装：
 
@@ -103,13 +104,19 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## 配置
 
-首次安装会创建：
+首次安装会运行：
+
+```powershell
+.\configure-vms.ps1
+```
+
+该脚本会查询当前系统中的 Hyper-V 虚拟机，让你选择一台或两台，并写入：
 
 ```text
 C:\ProgramData\HyperVStatusTray\config.json
 ```
 
-默认内容：
+配置示例：
 
 ```json
 {
@@ -119,15 +126,15 @@ C:\ProgramData\HyperVStatusTray\config.json
   "MonitorFailureThreshold": 2,
   "VirtualMachines": [
     {
-      "Name": "Fedora-OpenClaw",
-      "Label": "Fedora-OpenClaw",
+      "Name": "Dev-Linux",
+      "Label": "Dev-Linux",
       "UseHeartbeat": true,
       "PingAddress": null,
       "PingTimeoutMilliseconds": 800
     },
     {
-      "Name": "Win11-Sandbox",
-      "Label": "Win11-Sandbox",
+      "Name": "Win11-Test",
+      "Label": "Win11-Test",
       "UseHeartbeat": true,
       "PingAddress": null,
       "PingTimeoutMilliseconds": 800
@@ -136,7 +143,7 @@ C:\ProgramData\HyperVStatusTray\config.json
 }
 ```
 
-`Name` 必须与 Hyper-V 管理器中的虚拟机名称完全一致。列表必须保持两项，第一项对应上圆点，第二项对应下圆点。
+`Name` 必须与 Hyper-V 管理器中的虚拟机名称完全一致。列表必须包含一项或两项；一项时托盘显示一个圆点，两项时第一项对应上圆点，第二项对应下圆点。
 
 修改配置需要管理员权限。托盘菜单中的“以管理员身份编辑配置文件”会打开该配置；保存后选择“重新加载配置”。
 
