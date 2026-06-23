@@ -280,11 +280,34 @@ internal sealed class PipeBrokerServer : IDisposable
         }
 
         processId = clientProcessId;
-        using SafeProcessHandle processHandle = OpenProcess(ProcessQueryLimitedInformation, inheritHandle: false, clientProcessId);
+        string? path = null;
+        string? lookupError = null;
+        try
+        {
+            pipe.RunAsClient(() =>
+            {
+                path = TryQueryProcessImagePath(clientProcessId, out lookupError);
+            });
+        }
+        catch (Exception ex)
+        {
+            error = $"RunAsClient failed while reading PID={clientProcessId}. {ex.Message}";
+            return null;
+        }
+
+        error = lookupError;
+        return path;
+    }
+
+    private static string? TryQueryProcessImagePath(uint processId, out string? error)
+    {
+        error = null;
+
+        using SafeProcessHandle processHandle = OpenProcess(ProcessQueryLimitedInformation, inheritHandle: false, processId);
         if (processHandle.IsInvalid)
         {
             int errorCode = Marshal.GetLastWin32Error();
-            error = $"OpenProcess failed for PID={clientProcessId}. {new Win32Exception(errorCode).Message}";
+            error = $"OpenProcess failed for PID={processId}. {new Win32Exception(errorCode).Message}";
             return null;
         }
 
@@ -293,7 +316,7 @@ internal sealed class PipeBrokerServer : IDisposable
         if (!QueryFullProcessImageName(processHandle, QueryProcessImageNameWin32Path, path, ref pathLength))
         {
             int errorCode = Marshal.GetLastWin32Error();
-            error = $"QueryFullProcessImageName failed for PID={clientProcessId}. {new Win32Exception(errorCode).Message}";
+            error = $"QueryFullProcessImageName failed for PID={processId}. {new Win32Exception(errorCode).Message}";
             return null;
         }
 
