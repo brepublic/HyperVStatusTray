@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HyperVStatusTray.Broker</RootNamespace>
+    <AssemblyName>HyperVStatusTrayBroker</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\shared\HyperVStatusTray.Shared.csproj" />
+    <PackageReference Include="System.Management" Version="10.0.0" />
+  </ItemGroup>
+</Project>
