@@ -1,9 +1,54 @@
 [CmdletBinding()]
 param(
-    [switch]$PurgeData
+    [switch]$PurgeData,
+    [Parameter(DontShow = $true)]
+    [switch]$ElevatedResume
 )
 
 $ErrorActionPreference = 'Stop'
+$TuiModulePath = Join-Path $PSScriptRoot 'PowerShellTui.psm1'
+if (Test-Path $TuiModulePath) {
+    Import-Module $TuiModulePath -Force
+}
+
+if (-not $ElevatedResume -and $PSBoundParameters.Count -eq 0 -and (Get-Command Test-TuiHost -ErrorAction SilentlyContinue) -and (Test-TuiHost)) {
+    $Choice = Show-TuiMenu `
+        -Title 'HyperVStatusTray Uninstall' `
+        -Subtitle 'Choose how much to remove.' `
+        -Items @(
+            [pscustomobject]@{
+                Label = 'Uninstall and keep data'
+                Description = 'Remove the app, service, startup entry, and service permissions. Keep config and logs.'
+                PurgeData = $false
+            },
+            [pscustomobject]@{
+                Label = 'Uninstall and purge all data'
+                Description = 'Also remove machine config, broker logs, current-user data, and legacy install data.'
+                PurgeData = $true
+            }
+        )
+    if ($null -eq $Choice) {
+        Write-Host 'Uninstall cancelled.'
+        return
+    }
+
+    $PurgeData = $Choice.PurgeData
+    $Prompt = if ($PurgeData) {
+        'Remove HyperVStatusTray and purge all app data now?'
+    }
+    else {
+        'Remove HyperVStatusTray while keeping config and logs now?'
+    }
+
+    if (-not (Read-TuiConfirm -Title 'HyperVStatusTray Uninstall' -Prompt $Prompt -DefaultYes $false)) {
+        Write-Host 'Uninstall cancelled.'
+        return
+    }
+
+    Clear-Host
+    Write-TuiTitle -Title 'HyperVStatusTray Uninstall' -Subtitle 'Removing installed components...'
+}
+
 $ServiceName = 'HyperVStatusTrayBroker'
 $InstallDirectory = Join-Path $env:ProgramFiles 'HyperVStatusTray'
 $DataDirectory = Join-Path $env:ProgramData 'HyperVStatusTray'
@@ -99,7 +144,8 @@ if (-not (Test-IsAdministrator)) {
     $Args = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
-        '-File', "`"$PSCommandPath`""
+        '-File', "`"$PSCommandPath`"",
+        '-ElevatedResume'
     )
     if ($PurgeData) { $Args += '-PurgeData' }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $Args

@@ -4,6 +4,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$TuiModulePath = Join-Path $PSScriptRoot 'PowerShellTui.psm1'
+if (Test-Path $TuiModulePath) {
+    Import-Module $TuiModulePath -Force
+}
 
 function Get-HyperVVirtualMachineNames {
     $GetVmError = $null
@@ -128,11 +132,49 @@ function Get-DefaultSelectionText {
     }
 }
 
+function Convert-SelectionTextToIndexes {
+    param(
+        [string]$SelectionText,
+        [int]$Count
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SelectionText)) {
+        return @()
+    }
+
+    $Indexes = New-Object System.Collections.Generic.List[int]
+    foreach ($Part in @($SelectionText -split '[,\s]+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $Number = 0
+        if ([int]::TryParse($Part, [ref]$Number) -and $Number -ge 1 -and $Number -le $Count) {
+            $Indexes.Add($Number - 1) | Out-Null
+        }
+    }
+
+    return $Indexes.ToArray()
+}
+
 function Read-VmSelection {
     param(
         [Parameter(Mandatory)] [string[]]$VmNames,
         [string]$DefaultSelection
     )
+
+    if ((Get-Command Select-TuiMultiChoice -ErrorAction SilentlyContinue) -and (Test-TuiHost)) {
+        $DefaultSelectedIndexes = @(Convert-SelectionTextToIndexes -SelectionText $DefaultSelection -Count $VmNames.Count)
+        $SelectedNames = Select-TuiMultiChoice `
+            -Title 'HyperVStatusTray VM Configuration' `
+            -Subtitle 'Select one or two Hyper-V virtual machines to monitor.' `
+            -Items $VmNames `
+            -DefaultSelectedIndexes $DefaultSelectedIndexes `
+            -MinimumSelected 1 `
+            -MaximumSelected 2
+
+        if ($null -eq $SelectedNames) {
+            throw 'VM configuration cancelled.'
+        }
+
+        return $SelectedNames
+    }
 
     Write-Host ''
     Write-Host 'Hyper-V virtual machines found on this computer:' -ForegroundColor Cyan

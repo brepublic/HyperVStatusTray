@@ -1,10 +1,71 @@
 [CmdletBinding()]
 param(
     [switch]$FrameworkDependent,
-    [switch]$DoNotStart
+    [switch]$DoNotStart,
+    [Parameter(DontShow = $true)]
+    [switch]$ElevatedResume
 )
 
 $ErrorActionPreference = 'Stop'
+$TuiModulePath = Join-Path $PSScriptRoot 'PowerShellTui.psm1'
+if (Test-Path $TuiModulePath) {
+    Import-Module $TuiModulePath -Force
+}
+
+if (-not $ElevatedResume -and $PSBoundParameters.Count -eq 0 -and (Get-Command Test-TuiHost -ErrorAction SilentlyContinue) -and (Test-TuiHost)) {
+    $PublishChoice = Show-TuiMenu `
+        -Title 'HyperVStatusTray Install' `
+        -Subtitle 'Choose the build type to install.' `
+        -Items @(
+            [pscustomobject]@{
+                Label = 'Self-contained install'
+                Description = 'Recommended for most PCs; bundles the needed runtime pieces.'
+                FrameworkDependent = $false
+            },
+            [pscustomobject]@{
+                Label = 'Framework-dependent install'
+                Description = 'Smaller install; requires .NET 10 Desktop Runtime on this PC.'
+                FrameworkDependent = $true
+            }
+        )
+    if ($null -eq $PublishChoice) {
+        Write-Host 'Install cancelled.'
+        return
+    }
+
+    $FrameworkDependent = $PublishChoice.FrameworkDependent
+
+    $LaunchChoice = Show-TuiMenu `
+        -Title 'HyperVStatusTray Install' `
+        -Subtitle 'Choose what happens after installation.' `
+        -Items @(
+            [pscustomobject]@{
+                Label = 'Start tray app after install'
+                Description = 'Install the service and immediately launch the tray application.'
+                DoNotStart = $false
+            },
+            [pscustomobject]@{
+                Label = 'Do not start tray app'
+                Description = 'Install everything and leave startup for the next sign-in or manual launch.'
+                DoNotStart = $true
+            }
+        )
+    if ($null -eq $LaunchChoice) {
+        Write-Host 'Install cancelled.'
+        return
+    }
+
+    $DoNotStart = $LaunchChoice.DoNotStart
+
+    if (-not (Read-TuiConfirm -Title 'HyperVStatusTray Install' -Prompt 'Build and install HyperVStatusTray now? This requires administrator permission.' -DefaultYes $true)) {
+        Write-Host 'Install cancelled.'
+        return
+    }
+
+    Clear-Host
+    Write-TuiTitle -Title 'HyperVStatusTray Install' -Subtitle 'Preparing installation...'
+}
+
 $ServiceName = 'HyperVStatusTrayBroker'
 $InstallDirectory = Join-Path $env:ProgramFiles 'HyperVStatusTray'
 $DataDirectory = Join-Path $env:ProgramData 'HyperVStatusTray'
@@ -34,7 +95,8 @@ if (-not (Test-IsAdministrator)) {
     $Args = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
-        '-File', "`"$PSCommandPath`""
+        '-File', "`"$PSCommandPath`"",
+        '-ElevatedResume'
     )
     if ($FrameworkDependent) { $Args += '-FrameworkDependent' }
     if ($DoNotStart) { $Args += '-DoNotStart' }
