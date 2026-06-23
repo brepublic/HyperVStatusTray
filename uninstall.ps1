@@ -2,6 +2,8 @@
 param(
     [switch]$PurgeData,
     [Parameter(DontShow = $true)]
+    [switch]$SkipProgramFiles,
+    [Parameter(DontShow = $true)]
     [switch]$ElevatedResume
 )
 
@@ -232,6 +234,7 @@ function Remove-KnownDirectory {
 if (-not (Test-IsAdministrator)) {
     $ScriptParameters = @{ ElevatedResume = $true }
     if ($PurgeData) { $ScriptParameters.PurgeData = $true }
+    if ($SkipProgramFiles) { $ScriptParameters.SkipProgramFiles = $true }
     Start-ElevatedScript -ScriptParameters $ScriptParameters
     return
 }
@@ -252,7 +255,9 @@ if ($null -ne $Service) {
     Start-Sleep -Seconds 2
 }
 
-Remove-KnownDirectory -Path $InstallDirectory -ExpectedLeaf 'HyperVStatusTray'
+if (-not $SkipProgramFiles) {
+    Remove-KnownDirectory -Path $InstallDirectory -ExpectedLeaf 'HyperVStatusTray'
+}
 
 if ($PurgeData) {
     Remove-KnownDirectory -Path $DataDirectory -ExpectedLeaf 'HyperVStatusTray'
@@ -263,6 +268,9 @@ if ($PurgeData) {
 Write-Host 'HyperVStatusTray was removed.'
 if ($PurgeData) {
     Write-Host 'Program files, service registration, startup entries, service Hyper-V group membership, machine data, and current-user data were removed.'
+}
+elseif ($SkipProgramFiles) {
+    Write-Host 'Service registration, startup entries, and service Hyper-V group membership were removed. Program files will be removed by the installer.'
 }
 else {
     Write-Host "Machine configuration and broker logs were retained at: $DataDirectory"

@@ -3,6 +3,8 @@ param(
     [switch]$FrameworkDependent,
     [switch]$DoNotStart,
     [Parameter(DontShow = $true)]
+    [switch]$UseInstalledFiles,
+    [Parameter(DontShow = $true)]
     [switch]$ElevatedResume
 )
 
@@ -12,7 +14,7 @@ if (Test-Path $TuiModulePath) {
     Import-Module $TuiModulePath -Force
 }
 
-if (-not $ElevatedResume -and $PSBoundParameters.Count -eq 0 -and (Get-Command Test-TuiHost -ErrorAction SilentlyContinue) -and (Test-TuiHost)) {
+if (-not $UseInstalledFiles -and -not $ElevatedResume -and $PSBoundParameters.Count -eq 0 -and (Get-Command Test-TuiHost -ErrorAction SilentlyContinue) -and (Test-TuiHost)) {
     $PublishChoice = Show-TuiMenu `
         -Title 'HyperVStatusTray Install' `
         -Subtitle 'Choose the build type to install.' `
@@ -184,27 +186,43 @@ if (-not (Test-IsAdministrator)) {
     $ScriptParameters = @{ ElevatedResume = $true }
     if ($FrameworkDependent) { $ScriptParameters.FrameworkDependent = $true }
     if ($DoNotStart) { $ScriptParameters.DoNotStart = $true }
+    if ($UseInstalledFiles) { $ScriptParameters.UseInstalledFiles = $true }
     Start-ElevatedScript -ScriptParameters $ScriptParameters
     return
 }
 
-$BuildScript = Join-Path $PSScriptRoot 'build.ps1'
-$BuildArguments = @(
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', $BuildScript,
-    '-Runtime', $Runtime
-)
-if (-not $FrameworkDependent) {
-    $BuildArguments += '-SelfContained'
+if ($UseInstalledFiles) {
+    $ResolvedScriptRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
+    $ResolvedInstallDirectory = if (Test-Path -LiteralPath $InstallDirectory) {
+        (Resolve-Path -LiteralPath $InstallDirectory).Path
+    }
+    else {
+        $InstallDirectory
+    }
+
+    if ($ResolvedScriptRoot -ine $ResolvedInstallDirectory) {
+        throw "-UseInstalledFiles must be run from the installation directory: $InstallDirectory"
+    }
+}
+else {
+    $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
+    $BuildArguments = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $BuildScript,
+        '-Runtime', $Runtime
+    )
+    if (-not $FrameworkDependent) {
+        $BuildArguments += '-SelfContained'
+    }
+
+    & powershell.exe @BuildArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "build.ps1 failed with exit code $LASTEXITCODE"
+    }
 }
 
-& powershell.exe @BuildArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "build.ps1 failed with exit code $LASTEXITCODE"
-}
-
-$PublishDirectory = Join-Path $PSScriptRoot "publish\$Runtime"
+$PublishDirectory = if ($UseInstalledFiles) { $PSScriptRoot } else { Join-Path $PSScriptRoot "publish\$Runtime" }
 $TrayExecutable = Join-Path $PublishDirectory 'HyperVStatusTray.exe'
 $BrokerExecutable = Join-Path $PublishDirectory 'HyperVStatusTrayBroker.exe'
 if (-not (Test-Path $TrayExecutable)) {
@@ -227,7 +245,9 @@ if ($ExistingService = Get-Service -Name $ServiceName -ErrorAction SilentlyConti
 
 New-Item $InstallDirectory -ItemType Directory -Force | Out-Null
 New-Item $DataDirectory -ItemType Directory -Force | Out-Null
-Copy-Item (Join-Path $PublishDirectory '*') $InstallDirectory -Recurse -Force
+if (-not $UseInstalledFiles) {
+    Copy-Item (Join-Path $PublishDirectory '*') $InstallDirectory -Recurse -Force
+}
 
 $InstalledTray = Join-Path $InstallDirectory 'HyperVStatusTray.exe'
 $InstalledBroker = Join-Path $InstallDirectory 'HyperVStatusTrayBroker.exe'
