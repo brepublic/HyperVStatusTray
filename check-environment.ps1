@@ -2,6 +2,36 @@
 param()
 
 $ErrorActionPreference = 'Continue'
+$TuiModulePath = Join-Path $PSScriptRoot 'PowerShellTui.psm1'
+if (Test-Path $TuiModulePath) {
+    Import-Module $TuiModulePath -Force
+}
+
+if ((Get-Command Test-TuiHost -ErrorAction SilentlyContinue) -and (Test-TuiHost)) {
+    $Choice = Show-TuiMenu `
+        -Title 'HyperVStatusTray Environment Check' `
+        -Subtitle 'Verify local build, Hyper-V, service, and configuration state.' `
+        -Items @(
+            [pscustomobject]@{
+                Label = 'Run environment check'
+                Description = 'Check the SDK, Hyper-V feature, broker service, config, and service permissions.'
+                Action = 'Run'
+            },
+            [pscustomobject]@{
+                Label = 'Exit'
+                Description = 'Leave without running checks.'
+                Action = 'Exit'
+            }
+        )
+    if ($null -eq $Choice -or $Choice.Action -eq 'Exit') {
+        Write-Host 'Environment check cancelled.'
+        return
+    }
+
+    Clear-Host
+    Write-TuiTitle -Title 'HyperVStatusTray Environment Check' -Subtitle 'Running checks...'
+}
+
 $ServiceName = 'HyperVStatusTrayBroker'
 $ConfigPath = Join-Path $env:ProgramData 'HyperVStatusTray\config.json'
 $Failed = $false
@@ -60,11 +90,16 @@ else {
     Write-Check 'Broker service' ($Service.Status -eq 'Running') "Status=$($Service.Status)"
 }
 
-if (Test-Path $ConfigPath) {
-    Write-Check 'Machine config' $true $ConfigPath
+try {
+    if (Test-Path -LiteralPath $ConfigPath -ErrorAction Stop) {
+        Write-Check 'Machine config' $true $ConfigPath
+    }
+    else {
+        Write-Host "[INFO] Machine config - not created yet: $ConfigPath" -ForegroundColor Yellow
+    }
 }
-else {
-    Write-Host "[INFO] Machine config - not created yet: $ConfigPath" -ForegroundColor Yellow
+catch {
+    Write-Host "[INFO] Machine config - $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 try {
