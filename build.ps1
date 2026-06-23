@@ -89,9 +89,12 @@ function Publish-Project {
         '-p:PublishSingleFile=true',
         '-p:DebugType=None',
         '-p:DebugSymbols=false',
-        '-p:EnableCompressionInSingleFile=true',
         '-o', $Output
     )
+
+    if ($SelfContained) {
+        $Arguments += '-p:EnableCompressionInSingleFile=true'
+    }
 
     & dotnet @Arguments
     if ($LASTEXITCODE -ne 0) {

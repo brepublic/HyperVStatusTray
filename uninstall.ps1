@@ -63,6 +63,95 @@ function Test-IsAdministrator {
     return $Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function ConvertTo-PowerShellSingleQuotedString {
+    param([AllowEmptyString()] [Parameter(Mandatory)] [string]$Value)
+
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Start-ElevatedScript {
+    param([Parameter(Mandatory)] [hashtable]$ScriptParameters)
+
+    $ScriptPathLiteral = ConvertTo-PowerShellSingleQuotedString -Value $PSCommandPath
+    $ParameterEntries = @($ScriptParameters.GetEnumerator() |
+        Sort-Object Key |
+        ForEach-Object {
+            $NameLiteral = ConvertTo-PowerShellSingleQuotedString -Value $_.Key
+            $ValueLiteral = if ($_.Value) { '$true' } else { '$false' }
+            "$NameLiteral = $ValueLiteral"
+        })
+    $ScriptParameterHashtableLiteral = '@{' + ($ParameterEntries -join '; ') + '}'
+    $Command = @"
+`$ErrorActionPreference = 'Stop'
+`$ScriptExitCode = 0
+
+function Wait-BeforeClose {
+    param([int]`$Seconds = 20)
+
+    Write-Host ''
+    Write-Host "Press any key to close this window, or wait `$Seconds seconds..." -ForegroundColor Yellow
+
+    for (`$Remaining = `$Seconds; `$Remaining -gt 0; `$Remaining--) {
+        `$HasKey = `$false
+        try {
+            `$HasKey = [Console]::KeyAvailable
+        }
+        catch {
+            `$HasKey = `$false
+        }
+
+        if (`$HasKey) {
+            try {
+                [void][Console]::ReadKey(`$true)
+            }
+            catch {
+            }
+
+            break
+        }
+
+        Write-Host -NoNewline (([char]13) + ("Closing in {0} second(s)... " -f `$Remaining))
+        Start-Sleep -Seconds 1
+    }
+
+    Write-Host ''
+}
+
+try {
+    `$ScriptParameters = $ScriptParameterHashtableLiteral
+    & $ScriptPathLiteral @ScriptParameters
+}
+catch {
+    `$ScriptExitCode = 1
+    Write-Host ''
+    Write-Host 'Error:' -ForegroundColor Red
+    Write-Host `$_.Exception.Message -ForegroundColor Red
+    if (`$_.InvocationInfo -and `$_.InvocationInfo.PositionMessage) {
+        Write-Host `$_.InvocationInfo.PositionMessage -ForegroundColor DarkGray
+    }
+}
+finally {
+    Write-Host ''
+    if (`$ScriptExitCode -eq 0) {
+        Write-Host 'Completed successfully.' -ForegroundColor Green
+    }
+    else {
+        Write-Host 'Completed with errors.' -ForegroundColor Red
+    }
+
+    Wait-BeforeClose -Seconds 20
+    exit `$ScriptExitCode
+}
+"@
+    $EncodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
+    $ProcessArguments = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-EncodedCommand', $EncodedCommand
+    )
+    Start-Process powershell.exe -Verb RunAs -ArgumentList $ProcessArguments
+}
+
 function Remove-RunValue {
     param([Parameter(Mandatory)] [string]$RegistryPath)
 
@@ -141,14 +230,9 @@ function Remove-KnownDirectory {
 }
 
 if (-not (Test-IsAdministrator)) {
-    $Args = @(
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', "`"$PSCommandPath`"",
-        '-ElevatedResume'
-    )
-    if ($PurgeData) { $Args += '-PurgeData' }
-    Start-Process powershell.exe -Verb RunAs -ArgumentList $Args
+    $ScriptParameters = @{ ElevatedResume = $true }
+    if ($PurgeData) { $ScriptParameters.PurgeData = $true }
+    Start-ElevatedScript -ScriptParameters $ScriptParameters
     return
 }
 
