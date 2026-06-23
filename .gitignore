@@ -4,6 +4,17 @@
 
 # Binaries
 build/
+dist/
 **/bin/
 **/obj/
 publish/
+
+# User/local environment
+*.user
+*.suo
+.vs/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
