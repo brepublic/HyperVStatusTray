@@ -7,15 +7,27 @@ namespace HyperVStatusTray.UI;
 
 internal static class IconFactory
 {
-    public static Icon CreateTrayIcon(IndicatorState top, IndicatorState bottom)
+    public static Icon CreateTrayIcon(IReadOnlyList<IndicatorState> states)
     {
+        if (states.Count is < 1 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(states), "Tray icon supports one or two indicator states.");
+        }
+
         using Bitmap bitmap = new(32, 32, PixelFormat.Format32bppArgb);
         using Graphics graphics = Graphics.FromImage(bitmap);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         graphics.Clear(Color.Transparent);
 
-        DrawDot(graphics, new RectangleF(9, 2, 14, 14), top);
-        DrawDot(graphics, new RectangleF(9, 17, 14, 14), bottom);
+        if (states.Count == 1)
+        {
+            DrawDot(graphics, new RectangleF(7, 7, 18, 18), states[0]);
+        }
+        else
+        {
+            DrawDot(graphics, new RectangleF(9, 2, 14, 14), states[0]);
+            DrawDot(graphics, new RectangleF(9, 17, 14, 14), states[1]);
+        }
 
         IntPtr iconHandle = bitmap.GetHicon();
         try
