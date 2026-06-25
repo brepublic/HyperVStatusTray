@@ -29,6 +29,7 @@ internal sealed class BrokerEngine
                 BrokerCommand.GetSnapshot => BrokerResponse.Ok(request.RequestId, snapshot: CreateSnapshot()),
                 BrokerCommand.ExecuteVmAction => ExecuteVmAction(request),
                 BrokerCommand.ReloadConfig => ReloadConfig(request),
+                BrokerCommand.SetVmStartupPolicy => SetVmStartupPolicy(request),
                 _ => BrokerResponse.Fail(request.RequestId, "不支持的 Broker 命令。")
             };
         }
@@ -77,6 +78,43 @@ internal sealed class BrokerEngine
 
         Logger.Info($"{vmName}: 已执行 {request.Action.Value}。");
         return BrokerResponse.Ok(request.RequestId, "操作已被 Hyper-V 接受。", CreateSnapshot(config));
+    }
+
+    private BrokerResponse SetVmStartupPolicy(BrokerRequest request)
+    {
+        if (request.VmIndex is null || request.StartupPolicy is null)
+        {
+            return BrokerResponse.Fail(request.RequestId, "SetVmStartupPolicy 缺少 VmIndex 或 StartupPolicy。");
+        }
+
+        AppConfig config = GetConfig();
+        int vmIndex = request.VmIndex.Value;
+        if (vmIndex < 0 || vmIndex >= config.VirtualMachines.Count)
+        {
+            return BrokerResponse.Fail(request.RequestId, "VmIndex 不在允许范围内。");
+        }
+
+        VmStartupPolicy policy = request.StartupPolicy.Value;
+        if (policy == VmStartupPolicy.Unknown)
+        {
+            return BrokerResponse.Fail(request.RequestId, "不支持的虚拟机自动启动策略。");
+        }
+
+        if (policy != VmStartupPolicy.Disabled && request.AutomaticStartDelaySeconds is null)
+        {
+            return BrokerResponse.Fail(request.RequestId, "AutomaticStartDelay 缺失。");
+        }
+
+        if (request.AutomaticStartDelaySeconds is < 0)
+        {
+            return BrokerResponse.Fail(request.RequestId, "AutomaticStartDelay 不能小于 0。");
+        }
+
+        string vmName = config.VirtualMachines[vmIndex].Name;
+        _hyperVClient.SetStartupPolicy(vmName, policy, request.AutomaticStartDelaySeconds);
+
+        Logger.Info($"{vmName}: 已更新自动启动策略为 {policy}。");
+        return BrokerResponse.Ok(request.RequestId, "虚拟机自动启动策略已更新。", CreateSnapshot(config));
     }
 
     private BrokerResponse ReloadConfig(BrokerRequest request)

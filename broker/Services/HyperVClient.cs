@@ -2,12 +2,16 @@ using System.Globalization;
 using System.Management;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
+using HyperVStatusTray.Services;
 
 namespace HyperVStatusTray.Broker.Services;
 
 internal sealed class HyperVClient
 {
     private const string NamespacePath = @"\\.\root\virtualization\v2";
+    private const ushort AutomaticStartupActionNone = 2;
+    private const ushort AutomaticStartupActionStartIfRunning = 3;
+    private const ushort AutomaticStartupActionAlwaysStart = 4;
 
     public VmObservation Observe(VmConfig config)
     {
@@ -33,6 +37,7 @@ internal sealed class HyperVClient
             ushort[] operationalStatus = ReadUInt16Array(vm, "OperationalStatus");
             string[] statusDescriptions = ReadStringArray(vm, "StatusDescriptions");
             ulong uptime = ReadUInt64(vm, "OnTimeInMilliseconds") ?? 0;
+            (VmStartupPolicy startupPolicy, int? automaticStartDelaySeconds) = ReadStartupSettings(vm);
 
             HeartbeatKind heartbeatKind = HeartbeatKind.NotRequested;
             ushort? heartbeatCode = null;
@@ -68,7 +73,9 @@ internal sealed class HyperVClient
                 HeartbeatDescriptions = heartbeatDescriptions,
                 PingSucceeded = pingSucceeded,
                 PingRoundtripMilliseconds = pingRoundtrip,
-                PingError = pingError
+                PingError = pingError,
+                StartupPolicy = startupPolicy,
+                AutomaticStartDelaySeconds = automaticStartDelaySeconds
             };
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException or InvalidOperationException)
@@ -92,6 +99,48 @@ internal sealed class HyperVClient
     public void ShutDownGuest(string vmName) => InvokeShutdownComponent(vmName, "InitiateShutdown");
 
     public void RestartGuest(string vmName) => InvokeShutdownComponent(vmName, "InitiateReboot");
+
+    public void SetStartupPolicy(string vmName, VmStartupPolicy policy, int? delaySeconds)
+    {
+        if (policy == VmStartupPolicy.Unknown)
+        {
+            throw new ArgumentOutOfRangeException(nameof(policy), "Unknown is not a writable startup policy.");
+        }
+
+        if (policy != VmStartupPolicy.Disabled && delaySeconds is null)
+        {
+            throw new ArgumentException("AutomaticStartDelay is required when automatic startup is enabled.", nameof(delaySeconds));
+        }
+
+        if (delaySeconds is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(delaySeconds), "AutomaticStartDelay must be zero or greater.");
+        }
+
+        ManagementScope scope = CreateConnectedScope();
+        using ManagementObject vm = FindVirtualMachine(scope, vmName)
+            ?? throw new InvalidOperationException($"Virtual machine was not found: {vmName}.");
+        using ManagementObject settings = GetActiveVirtualSystemSettingData(vm)
+            ?? throw new InvalidOperationException("The active virtual machine settings were not found.");
+
+        settings["AutomaticStartupAction"] = ToAutomaticStartupAction(policy);
+        if (policy != VmStartupPolicy.Disabled)
+        {
+            settings["AutomaticStartupActionDelay"] = ManagementDateTimeConverter.ToDmtfTimeInterval(TimeSpan.FromSeconds(delaySeconds!.Value));
+        }
+
+        using ManagementObject service = GetVirtualSystemManagementService(scope);
+        using ManagementBaseObject input = service.GetMethodParameters("ModifySystemSettings");
+        input["SystemSettings"] = settings.GetText(TextFormat.CimDtd20);
+        using ManagementBaseObject output = service.InvokeMethod("ModifySystemSettings", input, null)
+            ?? throw new InvalidOperationException("Hyper-V did not return a ModifySystemSettings result.");
+
+        uint result = Convert.ToUInt32(output["ReturnValue"], CultureInfo.InvariantCulture);
+        if (result is not 0 and not 4096)
+        {
+            throw new InvalidOperationException($"Hyper-V ModifySystemSettings failed. ReturnValue={result}.");
+        }
+    }
 
     private static ManagementScope CreateConnectedScope()
     {
@@ -183,6 +232,41 @@ internal sealed class HyperVClient
         return (HeartbeatKind.Missing, null, []);
     }
 
+    private static (VmStartupPolicy Policy, int? DelaySeconds) ReadStartupSettings(ManagementObject vm)
+    {
+        try
+        {
+            using ManagementObject? settings = GetActiveVirtualSystemSettingData(vm);
+            if (settings is null)
+            {
+                return (VmStartupPolicy.Unknown, null);
+            }
+
+            VmStartupPolicy policy = ReadUInt16(settings, "AutomaticStartupAction") switch
+            {
+                AutomaticStartupActionNone => VmStartupPolicy.Disabled,
+                AutomaticStartupActionStartIfRunning => VmStartupPolicy.StartIfRunning,
+                AutomaticStartupActionAlwaysStart => VmStartupPolicy.AlwaysStart,
+                _ => VmStartupPolicy.Unknown
+            };
+
+            int? delaySeconds = null;
+            if (settings["AutomaticStartupActionDelay"] is string interval &&
+                !string.IsNullOrWhiteSpace(interval))
+            {
+                TimeSpan delay = ManagementDateTimeConverter.ToTimeSpan(interval);
+                delaySeconds = Math.Max(0, Convert.ToInt32(delay.TotalSeconds, CultureInfo.InvariantCulture));
+            }
+
+            return (policy, delaySeconds);
+        }
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException or InvalidOperationException)
+        {
+            Logger.Warning($"Failed to read VM startup policy: {ex.Message}");
+            return (VmStartupPolicy.Unknown, null);
+        }
+    }
+
     private static (bool? Success, long? RoundtripMilliseconds, string? Error) TryPing(string address, int timeoutMilliseconds)
     {
         try
@@ -216,6 +300,66 @@ internal sealed class HyperVClient
             throw new InvalidOperationException($"Hyper-V RequestStateChange 失败，返回码：{result}。");
         }
     }
+
+    private static ManagementObject GetVirtualSystemManagementService(ManagementScope scope)
+    {
+        ObjectQuery query = new("SELECT * FROM Msvm_VirtualSystemManagementService");
+        System.Management.EnumerationOptions options = CreateEnumerationOptions();
+
+        using ManagementObjectSearcher searcher = new(scope, query, options);
+        using ManagementObjectCollection results = searcher.Get();
+        foreach (ManagementObject service in results)
+        {
+            return service;
+        }
+
+        throw new InvalidOperationException("Hyper-V VirtualSystemManagementService was not found.");
+    }
+
+    private static ManagementObject? GetActiveVirtualSystemSettingData(ManagementObject vm)
+    {
+        using ManagementObjectCollection related = vm.GetRelated(
+            relatedClass: "Msvm_VirtualSystemSettingData",
+            relationshipClass: "Msvm_SettingsDefineState",
+            relationshipQualifier: null,
+            relatedQualifier: null,
+            relatedRole: null,
+            thisRole: null,
+            classDefinitionsOnly: false,
+            options: CreateEnumerationOptions());
+
+        ManagementObject? fallback = null;
+        foreach (ManagementObject settings in related)
+        {
+            string? virtualSystemType = settings["VirtualSystemType"] as string;
+            string? description = settings["Description"] as string;
+            if (string.Equals(virtualSystemType, "Microsoft:Hyper-V:System:Realized", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(description, "Active settings for the virtual machine", StringComparison.OrdinalIgnoreCase))
+            {
+                fallback?.Dispose();
+                return settings;
+            }
+
+            if (fallback is null)
+            {
+                fallback = settings;
+            }
+            else
+            {
+                settings.Dispose();
+            }
+        }
+
+        return fallback;
+    }
+
+    private static ushort ToAutomaticStartupAction(VmStartupPolicy policy) => policy switch
+    {
+        VmStartupPolicy.Disabled => AutomaticStartupActionNone,
+        VmStartupPolicy.StartIfRunning => AutomaticStartupActionStartIfRunning,
+        VmStartupPolicy.AlwaysStart => AutomaticStartupActionAlwaysStart,
+        _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, "Unsupported VM startup policy.")
+    };
 
     private static void InvokeShutdownComponent(string vmName, string methodName)
     {

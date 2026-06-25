@@ -5,7 +5,8 @@ public enum BrokerCommand
     Ping,
     GetSnapshot,
     ExecuteVmAction,
-    ReloadConfig
+    ReloadConfig,
+    SetVmStartupPolicy
 }
 
 public enum VmAction
@@ -26,6 +27,10 @@ public sealed record BrokerRequest
     public int? VmIndex { get; init; }
 
     public VmAction? Action { get; init; }
+
+    public VmStartupPolicy? StartupPolicy { get; init; }
+
+    public int? AutomaticStartDelaySeconds { get; init; }
 }
 
 public sealed record BrokerResponse

@@ -38,6 +38,24 @@ internal sealed class BrokerClient
         return response.Snapshot ?? throw new InvalidOperationException("Broker 没有返回重新加载后的状态快照。");
     }
 
+    public async Task<BrokerSnapshot> SetVmStartupPolicyAsync(
+        int vmIndex,
+        VmStartupPolicy policy,
+        int? automaticStartDelaySeconds,
+        CancellationToken cancellationToken)
+    {
+        BrokerResponse response = await SendAsync(
+            new BrokerRequest
+            {
+                Command = BrokerCommand.SetVmStartupPolicy,
+                VmIndex = vmIndex,
+                StartupPolicy = policy,
+                AutomaticStartDelaySeconds = automaticStartDelaySeconds
+            },
+            cancellationToken);
+        return response.Snapshot ?? throw new InvalidOperationException("Broker 没有返回更新后的状态快照。");
+    }
+
     private static async Task<BrokerResponse> SendAsync(BrokerRequest request, CancellationToken cancellationToken)
     {
         using CancellationTokenSource requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
