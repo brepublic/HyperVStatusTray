@@ -1,5 +1,7 @@
 # HyperVStatusTray
 
+[中文版 Chinese Version](README-zhCN.md)
+
 A Windows 11 system tray status indicator for Hyper-V virtual machines.
 
 - Monitor one or two Hyper-V virtual machines
