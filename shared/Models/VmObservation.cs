@@ -45,6 +45,10 @@ public sealed record VmObservation
 
     public string? PingError { get; init; }
 
+    public VmStartupPolicy StartupPolicy { get; init; } = VmStartupPolicy.Unknown;
+
+    public int? AutomaticStartDelaySeconds { get; init; }
+
     public bool IsReadySignalPresent =>
         Heartbeat is HeartbeatKind.Ok or HeartbeatKind.Degraded || PingSucceeded == true;
 

@@ -164,6 +164,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             VmStateTracker tracker = _trackers[index];
             ToolStripMenuItem root = new(tracker.Config.Label);
             ToolStripMenuItem status = new("等待状态") { Enabled = false };
+            ToolStripMenuItem startupPolicy = new("当前自动启动策略：未知") { Enabled = false };
+            ToolStripMenuItem configureStartupPolicy = new("配置虚拟机自动启动策略", null, async (_, _) => await ConfigureVmStartupPolicyAsync(capturedIndex));
             ToolStripMenuItem start = new("启动", null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.Start));
             ToolStripMenuItem connect = new("连接控制台", null, (_, _) => ConnectToVm(capturedIndex));
             ToolStripMenuItem shutdown = new("正常关机", null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.ShutDownGuest));
@@ -178,6 +180,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             });
 
             root.DropDownItems.Add(status);
+            root.DropDownItems.Add(startupPolicy);
+            root.DropDownItems.Add(configureStartupPolicy);
             root.DropDownItems.Add(new ToolStripSeparator());
             root.DropDownItems.Add(start);
             root.DropDownItems.Add(connect);
@@ -191,7 +195,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             root.DropDownItems.Add(clearFault);
             menu.Items.Add(root);
 
-            _vmMenus.Add(new VmMenuBinding(root, status, start, connect, shutdown, turnOff, restart, reset, clearFault));
+            _vmMenus.Add(new VmMenuBinding(root, status, startupPolicy, configureStartupPolicy, start, connect, shutdown, turnOff, restart, reset, clearFault));
         }
 
         menu.Items.Add(new ToolStripSeparator());
@@ -403,6 +407,54 @@ internal sealed class TrayApplicationContext : ApplicationContext
         await PollAsync();
     }
 
+    private async Task ConfigureVmStartupPolicyAsync(int index)
+    {
+        VmStateTracker tracker = _trackers[index];
+        VmObservation? observation = tracker.Current.Observation;
+        using VmStartupPolicyDialog dialog = new(
+            tracker.Config.Label,
+            observation?.StartupPolicy ?? VmStartupPolicy.Unknown,
+            observation?.AutomaticStartDelaySeconds);
+
+        if (dialog.ShowDialog() != DialogResult.OK)
+        {
+            return;
+        }
+
+        await _pollGate.WaitAsync();
+        try
+        {
+            BrokerSnapshot snapshot = await _brokerClient.SetVmStartupPolicyAsync(
+                index,
+                dialog.SelectedPolicy,
+                dialog.AutomaticStartDelaySeconds,
+                _cancellation.Token);
+
+            if (_cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+
+            ApplyBrokerSnapshot(snapshot);
+            _notifyIcon.ShowBalloonTip(2500, tracker.Config.Label, "虚拟机自动启动策略已更新。", ToolTipIcon.Info);
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // Normal during application shutdown.
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"{tracker.Config.Name}: 更新自动启动策略失败。", ex);
+            ShowError($"{tracker.Config.Label} 自动启动策略更新失败", ex);
+        }
+        finally
+        {
+            _pollGate.Release();
+        }
+
+        await PollAsync();
+    }
+
     private void ConnectToVm(int index)
     {
         try
@@ -529,6 +581,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             bool running = observation?.IsRunning == true;
             bool powered = observation?.IsPowered == true;
 
+            binding.StartupPolicy.Text = $"当前自动启动策略：{FormatStartupPolicy(observation)}";
+            binding.ConfigureStartupPolicy.Enabled = exists;
             binding.Start.Enabled = exists && offLike;
             binding.Connect.Enabled = exists && powered;
             binding.Shutdown.Enabled = exists && running;
@@ -554,6 +608,30 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 }
             }
         }
+    }
+
+    private static string FormatStartupPolicy(VmObservation? observation)
+    {
+        if (observation is null || !observation.Exists)
+        {
+            return "未知";
+        }
+
+        string policyText = observation.StartupPolicy switch
+        {
+            VmStartupPolicy.Disabled => "不自动启动",
+            VmStartupPolicy.StartIfRunning => "如果之前正在运行则自动启动",
+            VmStartupPolicy.AlwaysStart => "始终自动启动",
+            _ => "未知"
+        };
+
+        if (observation.StartupPolicy is VmStartupPolicy.StartIfRunning or VmStartupPolicy.AlwaysStart &&
+            observation.AutomaticStartDelaySeconds is not null)
+        {
+            return $"{policyText}（延迟 {observation.AutomaticStartDelaySeconds.Value} 秒）";
+        }
+
+        return policyText;
     }
 
     private void ShowDetails()
@@ -672,6 +750,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private sealed record VmMenuBinding(
         ToolStripMenuItem Root,
         ToolStripMenuItem Status,
+        ToolStripMenuItem StartupPolicy,
+        ToolStripMenuItem ConfigureStartupPolicy,
         ToolStripMenuItem Start,
         ToolStripMenuItem Connect,
         ToolStripMenuItem Shutdown,
