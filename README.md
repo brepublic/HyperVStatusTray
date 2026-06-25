@@ -1,127 +1,129 @@
 # HyperVStatusTray
 
-Windows 11 上的 Hyper-V 虚拟机托盘状态指示器。
+A Windows 11 system tray status indicator for Hyper-V virtual machines.
 
-- 可监视一台或两台 Hyper-V 虚拟机
-- 一台虚拟机：托盘显示一个圆点
-- 两台虚拟机：第一台显示在上方，第二台显示在下方
-- 灰色：Off / Saved
-- 黄色：启动、停止、暂停、恢复中，或客户机暂未就绪
-- 绿色：Heartbeat 正常，或配置的 ICMP Ping 成功
-- 红色：启动超时、启动后掉回 Off、Hyper-V 关键故障、虚拟机不存在
-- 蓝色带斜线：broker 服务不可用或监控未知
-- 可在托盘菜单中查看并配置每台虚拟机的 Hyper-V 自动启动策略
+- Monitor one or two Hyper-V virtual machines
+- One VM: the tray icon shows one dot
+- Two VMs: the first VM is shown on top, the second on the bottom
+- Gray: Off / Saved
+- Yellow: starting, stopping, paused, resuming, or the guest is not ready yet
+- Green: Heartbeat is healthy, or the configured ICMP ping succeeds
+- Red: startup timeout, startup fell back to Off, critical Hyper-V fault, or VM missing
+- Blue with slash: broker service unavailable or monitoring state unknown
+- View and configure each VM's Hyper-V automatic startup policy from the tray menu
+- Switch the UI language between English, Simplified Chinese, and Traditional Chinese
 
-## 架构
+## Architecture
 
-本项目使用 Service/Broker 架构：
+This project uses a service/broker architecture:
 
-- `HyperVStatusTray.exe`：普通权限托盘 UI，只负责图标、菜单、状态机和打开 `vmconnect.exe`。
-- `HyperVStatusTrayBroker.exe`：Windows Service，负责访问 Hyper-V WMI 并执行白名单电源操作。
-- 两者通过固定 Named Pipe `HyperVStatusTrayBroker` 通信，消息是带长度前缀的 JSON。
+- `HyperVStatusTray.exe`: unelevated tray UI for the icon, menu, state machine, and `vmconnect.exe`.
+- `HyperVStatusTrayBroker.exe`: Windows Service that accesses Hyper-V WMI and performs allow-listed power operations.
+- The two processes communicate through the fixed named pipe `HyperVStatusTrayBroker` using length-prefixed JSON messages.
 
-托盘进程不再直接访问 Hyper-V，因此日常用户不需要加入 `Hyper-V Administrators`。
+The tray process no longer talks to Hyper-V directly, so daily users do not need to be members of `Hyper-V Administrators`.
 
-## 安全模型
+## Security Model
 
-安装目录：
+Install directory:
 
 ```text
 C:\Program Files\HyperVStatusTray
 ```
 
-机器级配置：
+Machine-level configuration:
 
 ```text
 C:\ProgramData\HyperVStatusTray\config.json
 ```
 
-broker 服务使用虚拟服务账户：
+The broker service uses this virtual service account:
 
 ```text
 NT SERVICE\HyperVStatusTrayBroker
 ```
 
-安装脚本会把该服务账户加入本机 `Hyper-V Administrators` 组。该账户拥有完整 Hyper-V 管理能力，但 broker 只暴露以下固定操作：
+The installer adds that service account to the local `Hyper-V Administrators` group. The account has full Hyper-V management permissions, but the broker only exposes these fixed operations:
 
-- 查询配置内一台或两台虚拟机状态
-- 启动
-- 正常关机
-- 正常重启
-- 强制关闭电源
-- 强制重置
-- 重新加载配置
-- 读取和配置已监控虚拟机的自动启动策略及 `AutomaticStartDelay`
+- Query the status of one or two configured VMs
+- Start
+- Guest shutdown
+- Guest restart
+- Force power off
+- Force reset
+- Reload configuration
+- Read and configure the monitored VMs' automatic startup policy and `AutomaticStartDelay`
 
-broker 不接受任意 PowerShell、任意 WMI 查询、任意 VM 名称、硬盘/网络/安全设置修改。服务端还会校验 Pipe 客户端进程路径，只接受安装目录中的 `HyperVStatusTray.exe`。
+The broker does not accept arbitrary PowerShell, arbitrary WMI queries, arbitrary VM names, or disk/network/security setting changes. It also validates the pipe client process path and only accepts `HyperVStatusTray.exe` from the installation directory.
 
-## 构建和安装
+## Build and Install
 
-需要 Windows 11、Hyper-V 和 .NET 10 SDK。
+Requires Windows 11, Hyper-V, and the .NET 10 SDK.
 
-检查环境：
+Check the environment:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\check-environment.ps1
 ```
 
-构建并安装：
+Build and install:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\install.ps1
 ```
 
-`install.ps1` 需要管理员权限；如果不是管理员运行，会请求 UAC 提升。默认发布自包含 `win-x64` 单文件版本，安装托盘程序和 broker 服务，并为当前用户写入 HKCU 登录启动项。安装过程中会调用 `configure-vms.ps1` 查询当前系统中的 Hyper-V 虚拟机，并让你选择一台或两台作为监视对象。
+`install.ps1` requires administrator permission. If it is not already elevated, it prompts for UAC elevation. By default it publishes a self-contained `win-x64` single-file build, installs the tray app and broker service, and writes an HKCU sign-in startup entry for the current user. During installation, `configure-vms.ps1` queries the local Hyper-V VMs and lets you select one or two VMs to monitor.
 
-只构建、不安装：
+Build only:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\build.ps1 -SelfContained
 ```
 
-卸载程序、服务和开机启动项，但保留机器级配置、broker 日志和当前用户托盘日志：
+Uninstall the app, service, and startup entry while keeping machine configuration, broker logs, and current-user tray logs:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\uninstall.ps1
 ```
 
-彻底清理程序痕迹：
+Remove all traces:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\uninstall.ps1 -PurgeData
 ```
 
-`-PurgeData` 会额外删除：
+`-PurgeData` also removes:
 
 - `C:\ProgramData\HyperVStatusTray`
 - `%LOCALAPPDATA%\HyperVStatusTray`
-- 旧版本可能留下的 `%LOCALAPPDATA%\Programs\HyperVStatusTray`
-- 当前用户和已加载用户配置中的 `HKCU\...\Run\HyperVStatusTray`
-- `NT SERVICE\HyperVStatusTrayBroker` 在 Hyper-V Administrators 组中的成员关系
+- `%LOCALAPPDATA%\Programs\HyperVStatusTray` from older versions
+- `HKCU\...\Run\HyperVStatusTray` entries for the current and loaded user profiles
+- `NT SERVICE\HyperVStatusTrayBroker` membership in the Hyper-V Administrators group
 
-## 配置
+## Configuration
 
-首次安装会运行：
+First install runs:
 
 ```powershell
 .\configure-vms.ps1
 ```
 
-该脚本会查询当前系统中的 Hyper-V 虚拟机，让你选择一台或两台，并写入：
+The script queries local Hyper-V VMs, lets you choose one or two, and writes:
 
 ```text
 C:\ProgramData\HyperVStatusTray\config.json
 ```
 
-配置示例：
+Example:
 
 ```json
 {
+  "Language": "English",
   "PollIntervalSeconds": 5,
   "StartupTimeoutSeconds": 180,
   "SignalLossGraceSeconds": 20,
@@ -145,54 +147,58 @@ C:\ProgramData\HyperVStatusTray\config.json
 }
 ```
 
-`Name` 必须与 Hyper-V 管理器中的虚拟机名称完全一致。列表必须包含一项或两项；一项时托盘显示一个圆点，两项时第一项对应上圆点，第二项对应下圆点。
+`Language` can be `English`, `SimplifiedChinese`, or `TraditionalChinese`. It is saved in the same configuration file and can be changed from the tray menu: `Language -> English / 简体中文 / 繁體中文`.
 
-修改配置需要管理员权限。托盘菜单中的“以管理员身份编辑配置文件”会打开该配置；保存后选择“重新加载配置”。
+`Name` must exactly match the virtual machine name in Hyper-V Manager. The list must contain one or two entries. With one entry, the tray icon shows one dot. With two entries, the first VM maps to the top dot and the second maps to the bottom dot.
 
-## 状态判断
+Changing configuration requires administrator permission. Use the tray menu item `Edit configuration as administrator`, save the file, then choose `Reload configuration`.
 
-broker 读取：
+## Status Logic
 
-- `Msvm_ComputerSystem`：电源状态、HealthState、OperationalStatus、运行时间
-- `Msvm_HeartbeatComponent`：客户机 Heartbeat
-- `Msvm_ShutdownComponent`：正常关机和正常重启
+The broker reads:
 
-托盘侧保留状态机：
+- `Msvm_ComputerSystem`: power state, HealthState, OperationalStatus, uptime
+- `Msvm_HeartbeatComponent`: guest Heartbeat
+- `Msvm_ShutdownComponent`: guest shutdown and guest restart
 
-- Running 且 Heartbeat OK/Degraded：绿色
-- Heartbeat 不可用但配置了 `PingAddress` 且 Ping 成功：绿色
-- 启动超过 `StartupTimeoutSeconds` 仍无 Heartbeat/Ping：红色并锁存
-- 已经绿色后短暂丢失信号：先黄，超过 `SignalLossGraceSeconds` 后红
-- broker 服务不可用：蓝色未知
+The tray keeps a local state machine:
 
-## 托盘菜单
+- Running with Heartbeat OK/Degraded: green
+- Heartbeat unavailable but configured `PingAddress` succeeds: green
+- No Heartbeat/Ping after `StartupTimeoutSeconds`: red and latched
+- Readiness signal briefly lost after green: yellow first, then red after `SignalLossGraceSeconds`
+- Broker service unavailable: blue unknown
 
-每台虚拟机提供：
+## Tray Menu
 
-- 启动
-- 连接控制台
-- 正常关机
-- 正常重启
-- 强制关闭电源
-- 强制重置
-- 清除故障锁存
-- 当前自动启动策略：显示 `不自动启动`、`如果之前正在运行则自动启动` 或 `始终自动启动`
-- 配置虚拟机自动启动策略：通过 broker 修改 Hyper-V 的 `AutomaticStartupAction`；选择自动启动类策略时可同时设置 `AutomaticStartDelay`
+Each VM provides:
 
-强制关闭和强制重置会二次确认。连接控制台由托盘进程直接启动 `vmconnect.exe localhost <VM 名称>`，服务不会在 Session 0 打开 UI。
+- Start
+- Connect console
+- Guest shutdown
+- Guest restart
+- Force power off
+- Force reset
+- Clear latched fault
+- Current automatic startup policy: `Do not start automatically`, `Start automatically if it was running before`, or `Always start automatically`
+- Configure VM automatic startup policy: modifies Hyper-V `AutomaticStartupAction` through the broker; automatic startup policies can also set `AutomaticStartDelay`
 
-## 日志
+Force power off and force reset ask for confirmation. Console connection is launched directly by the tray process with `vmconnect.exe localhost <VM name>`; the service does not open UI from Session 0.
 
-托盘日志：
+## Logs
+
+Tray log:
 
 ```text
 %LOCALAPPDATA%\HyperVStatusTray\HyperVStatusTray.log
 ```
 
-broker 服务日志：
+Broker service log:
 
 ```text
 C:\ProgramData\HyperVStatusTray\HyperVStatusTrayBroker.log
 ```
 
-日志超过 2 MiB 时会轮换为 `.previous.log`。
+Logs rotate to `.previous.log` after 2 MiB.
+
+The original Simplified Chinese README is available as `README-zhCN.md`.

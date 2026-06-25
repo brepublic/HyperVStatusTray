@@ -9,13 +9,14 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+        AppLanguage language = GetConfiguredLanguage();
 
         using Mutex mutex = new(initiallyOwned: true, name: @"Local\HyperVStatusTray.SingleInstance", createdNew: out bool createdNew);
         if (!createdNew)
         {
             MessageBox.Show(
-                "Hyper-V 状态指示器已经在运行。请检查系统托盘的隐藏图标区域。",
-                "Hyper-V 状态指示器",
+                AppText.Get(language, TextId.ProgramAlreadyRunning),
+                AppText.Get(language, TextId.TrayTitle),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
             return;
@@ -28,12 +29,19 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Logger.Error("程序初始化失败。", ex);
+            Logger.Error(AppText.Get(language, TextId.ProgramInitFailedLog), ex);
             MessageBox.Show(
-                $"程序初始化失败：\n\n{ex.Message}\n\n日志：{Logger.LogPath}",
-                "Hyper-V 状态指示器",
+                AppText.Format(language, TextId.ProgramInitFailedMessage, ex.Message, Logger.LogPath),
+                AppText.Get(language, TextId.TrayTitle),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
+    }
+
+    private static AppLanguage GetConfiguredLanguage()
+    {
+        return ConfigService.TryReload(out AppConfig? config, out _) && config is not null
+            ? config.Language
+            : AppText.DefaultLanguage;
     }
 }

@@ -16,7 +16,7 @@ public static class ConfigService
 
         if (!File.Exists(ConfigPath))
         {
-            throw new InvalidDataException($"配置文件不存在：{ConfigPath}。请先运行 configure-vms.ps1 选择要监视的虚拟机。");
+            throw new InvalidDataException(AppText.Format(AppText.DefaultLanguage, TextId.ConfigMissing, ConfigPath));
         }
 
         try
@@ -24,7 +24,7 @@ public static class ConfigService
             AppConfig? config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(ConfigPath), BrokerProtocol.JsonOptions);
             if (config is null)
             {
-                throw new InvalidDataException("配置文件内容为空。");
+                throw new InvalidDataException(AppText.Get(AppText.DefaultLanguage, TextId.ConfigEmpty));
             }
 
             config.Validate();
@@ -42,10 +42,12 @@ public static class ConfigService
             }
             catch
             {
-                backupPath = "（备份失败）";
+                backupPath = AppText.Get(AppText.DefaultLanguage, TextId.ConfigBackupFailed);
             }
 
-            throw new InvalidDataException($"配置文件无效，未自动恢复默认配置。\n\n原因：{ex.Message}\n备份：{backupPath}\n请运行 configure-vms.ps1 重新选择要监视的虚拟机。", ex);
+            throw new InvalidDataException(
+                AppText.Format(AppText.DefaultLanguage, TextId.ConfigInvalid, ex.Message, backupPath),
+                ex);
         }
     }
 
@@ -59,7 +61,7 @@ public static class ConfigService
             AppConfig? loaded = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(ConfigPath), BrokerProtocol.JsonOptions);
             if (loaded is null)
             {
-                throw new InvalidDataException("配置文件内容为空。");
+                throw new InvalidDataException(AppText.Get(AppText.DefaultLanguage, TextId.ConfigEmpty));
             }
 
             loaded.Validate();
@@ -80,7 +82,7 @@ public static class ConfigService
             BrokerProtocol.JsonOptions);
         if (options is null)
         {
-            throw new InvalidDataException("broker-security.json 内容为空。");
+            throw new InvalidDataException(AppText.Get(AppText.DefaultLanguage, TextId.BrokerSecurityEmpty));
         }
 
         options.Validate();

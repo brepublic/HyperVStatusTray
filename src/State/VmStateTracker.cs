@@ -25,8 +25,8 @@ internal sealed class VmStateTracker
         {
             Config = Config,
             Indicator = IndicatorState.Unknown,
-            Summary = "等待第一次查询",
-            Detail = "尚未从 Hyper-V 读取状态。",
+            Summary = T(TextId.WaitingFirstQuery),
+            Detail = T(TextId.NoStateRead),
             UpdatedAtUtc = DateTimeOffset.UtcNow
         };
     }
@@ -34,6 +34,12 @@ internal sealed class VmStateTracker
     public VmConfig Config { get; }
 
     public VmStatusSnapshot Current { get; private set; }
+
+    private AppLanguage Language => _appConfig.Language;
+
+    private string T(TextId id) => AppText.Get(Language, id);
+
+    private string F(TextId id, params object?[] args) => AppText.Format(Language, id, args);
 
     public void MarkStartRequested()
     {
@@ -47,7 +53,7 @@ internal sealed class VmStateTracker
         _latchedFaultReason = null;
         _bootNotReadySinceUtc = DateTimeOffset.UtcNow;
         _signalLostSinceUtc = null;
-        Current = CreateSnapshot(IndicatorState.Starting, "启动请求已发送", "正在等待 Hyper-V 和客户机就绪信号。", Current.Observation);
+        Current = CreateSnapshot(IndicatorState.Starting, T(TextId.StartRequestSent), T(TextId.WaitingHyperVReady), Current.Observation);
     }
 
     public void MarkRestartRequested()
@@ -64,8 +70,8 @@ internal sealed class VmStateTracker
         _signalLostSinceUtc = null;
         Current = CreateSnapshot(
             IndicatorState.Starting,
-            "重启请求已发送",
-            "正在等待客户机进入重启过程并重新取得就绪信号。",
+            T(TextId.RestartRequestSent),
+            T(TextId.WaitingRestartReady),
             Current.Observation);
     }
 
@@ -110,7 +116,11 @@ internal sealed class VmStateTracker
             {
                 Current = Current with
                 {
-                    Detail = $"本次监控查询失败（{_consecutiveMonitorFailures}/{_appConfig.MonitorFailureThreshold}）：{observation.MonitoringError}",
+                    Detail = F(
+                        TextId.MonitorQueryFailed,
+                        _consecutiveMonitorFailures,
+                        _appConfig.MonitorFailureThreshold,
+                        observation.MonitoringError),
                     Observation = observation,
                     UpdatedAtUtc = observation.ObservedAtUtc
                 };
@@ -119,8 +129,8 @@ internal sealed class VmStateTracker
 
             Current = CreateSnapshot(
                 IndicatorState.Unknown,
-                "无法访问监控接口",
-                observation.MonitoringError ?? "未知监控错误。",
+                T(TextId.MonitorApiUnavailable),
+                observation.MonitoringError ?? T(TextId.UnknownMonitoringError),
                 observation);
             return Current;
         }
@@ -138,8 +148,8 @@ internal sealed class VmStateTracker
             _restartTransitionObserved = false;
             _bootNotReadySinceUtc = null;
             _signalLostSinceUtc = null;
-            string reason = observation.MonitoringError ?? $"找不到虚拟机 {Config.Name}。";
-            Current = CreateSnapshot(IndicatorState.Fault, "虚拟机不存在", reason, observation);
+            string reason = observation.MonitoringError ?? F(TextId.VmNotFoundReason, Config.Name);
+            Current = CreateSnapshot(IndicatorState.Fault, T(TextId.VmMissingSummary), reason, observation);
             return Current;
         }
 
@@ -148,7 +158,7 @@ internal sealed class VmStateTracker
             string reason = BuildCriticalReason(observation);
             _faultLatched = true;
             _latchedFaultReason = reason;
-            Current = CreateSnapshot(IndicatorState.Fault, "Hyper-V 报告关键故障", reason, observation);
+            Current = CreateSnapshot(IndicatorState.Fault, T(TextId.HyperVCriticalFault), reason, observation);
             return Current;
         }
 
@@ -164,7 +174,7 @@ internal sealed class VmStateTracker
             {
                 Current = CreateSnapshot(
                     IndicatorState.Starting,
-                    "启动请求已发送，等待 Hyper-V 状态变化",
+                    T(TextId.StartRequestWaitingState),
                     BuildObservationDetail(observation),
                     observation);
                 return Current;
@@ -182,23 +192,23 @@ internal sealed class VmStateTracker
             {
                 _faultLatched = true;
                 _latchedFaultReason = failedRestart
-                    ? "虚拟机在重启期间掉回 Off/Saved 且未恢复就绪，疑似重启失败。"
-                    : "虚拟机在达到就绪状态前重新回到 Off/Saved，疑似启动失败。";
+                    ? T(TextId.RestartFailedOff)
+                    : T(TextId.StartFailedOff);
             }
 
             if (_faultLatched)
             {
                 Current = CreateSnapshot(
                     IndicatorState.Fault,
-                    "故障已锁存",
-                    _latchedFaultReason ?? "先前的故障仍未清除。",
+                    T(TextId.FaultLatched),
+                    _latchedFaultReason ?? T(TextId.PreviousFaultUncleared),
                     observation);
             }
             else
             {
                 Current = CreateSnapshot(
                     IndicatorState.Off,
-                    observation.EnabledState is 32769 or 32779 ? "已保存" : "已关闭",
+                    observation.EnabledState is 32769 or 32779 ? T(TextId.Saved) : T(TextId.Off),
                     BuildObservationDetail(observation),
                     observation);
             }
@@ -222,7 +232,7 @@ internal sealed class VmStateTracker
             _signalLostSinceUtc = null;
             Current = CreateSnapshot(
                 IndicatorState.Starting,
-                "虚拟机已暂停",
+                T(TextId.Paused),
                 BuildObservationDetail(observation),
                 observation);
             return Current;
@@ -249,7 +259,7 @@ internal sealed class VmStateTracker
 
             Current = CreateSnapshot(
                 IndicatorState.Starting,
-                $"{observation.HyperVStateText}，等待就绪",
+                F(TextId.WaitingReady, observation.FormatHyperVStateText(Language)),
                 BuildObservationDetail(observation, elapsed),
                 observation);
             return Current;
@@ -268,7 +278,7 @@ internal sealed class VmStateTracker
             _signalLostSinceUtc = null;
             Current = CreateSnapshot(
                 IndicatorState.Starting,
-                observation.HyperVStateText,
+                observation.FormatHyperVStateText(Language),
                 BuildObservationDetail(observation),
                 observation);
             return Current;
@@ -294,10 +304,10 @@ internal sealed class VmStateTracker
                     if (waitingForRestart.TotalSeconds >= _appConfig.StartupTimeoutSeconds)
                     {
                         _faultLatched = true;
-                        _latchedFaultReason = $"重启请求已发送，但持续 {FormatDuration(waitingForRestart)} 未观察到客户机进入重启过程。";
+                        _latchedFaultReason = F(TextId.RestartNotStartedReason, FormatDuration(waitingForRestart));
                         Current = CreateSnapshot(
                             IndicatorState.Fault,
-                            "重启未开始",
+                            T(TextId.RestartNotStartedSummary),
                             BuildObservationDetail(observation, waitingForRestart, _latchedFaultReason),
                             observation);
                         return Current;
@@ -305,7 +315,7 @@ internal sealed class VmStateTracker
 
                     Current = CreateSnapshot(
                         IndicatorState.Starting,
-                        "等待客户机开始重启",
+                        T(TextId.WaitingGuestRestart),
                         BuildObservationDetail(observation, waitingForRestart),
                         observation);
                     return Current;
@@ -323,10 +333,10 @@ internal sealed class VmStateTracker
                 _latchedFaultReason = null;
 
                 string readiness = observation.Heartbeat is HeartbeatKind.Ok or HeartbeatKind.Degraded
-                    ? $"Heartbeat {observation.HeartbeatText}"
+                    ? $"Heartbeat {observation.FormatHeartbeatText(Language)}"
                     : observation.PingSucceeded == true
-                        ? $"ICMP Ping 成功（{observation.PingRoundtripMilliseconds ?? 0} ms）"
-                        : "就绪信号正常";
+                        ? F(TextId.PingSucceededMs, observation.PingRoundtripMilliseconds ?? 0)
+                        : T(TextId.ReadySignalNormal);
 
                 Current = CreateSnapshot(
                     IndicatorState.Ready,
@@ -351,7 +361,7 @@ internal sealed class VmStateTracker
                 {
                     Current = CreateSnapshot(
                         IndicatorState.Fault,
-                        "就绪信号持续丢失",
+                        T(TextId.ReadySignalLostFault),
                         BuildObservationDetail(observation, lostFor),
                         observation);
                     return Current;
@@ -359,7 +369,7 @@ internal sealed class VmStateTracker
 
                 Current = CreateSnapshot(
                     IndicatorState.Starting,
-                    "就绪信号暂时丢失",
+                    T(TextId.ReadySignalLostTemporary),
                     BuildObservationDetail(observation, lostFor),
                     observation);
                 return Current;
@@ -378,7 +388,7 @@ internal sealed class VmStateTracker
 
             Current = CreateSnapshot(
                 IndicatorState.Starting,
-                "Hyper-V 已运行，客户机未就绪",
+                T(TextId.RunningGuestNotReady),
                 BuildObservationDetail(observation, notReadyFor),
                 observation);
             return Current;
@@ -386,7 +396,7 @@ internal sealed class VmStateTracker
 
         Current = CreateSnapshot(
             IndicatorState.Unknown,
-            $"未处理的 Hyper-V 状态：{observation.HyperVStateText}",
+            F(TextId.UnhandledHyperVState, observation.FormatHyperVStateText(Language)),
             BuildObservationDetail(observation),
             observation);
         return Current;
@@ -396,10 +406,10 @@ internal sealed class VmStateTracker
     {
         bool isRestart = _restartAttemptActive;
         _faultLatched = true;
-        _latchedFaultReason = $"虚拟机已持续 {FormatDuration(elapsed)} 未取得 Heartbeat/Ping 就绪信号，超过 {_appConfig.StartupTimeoutSeconds} 秒阈值。";
+        _latchedFaultReason = F(TextId.StartupTimeoutReason, FormatDuration(elapsed), _appConfig.StartupTimeoutSeconds);
         Current = CreateSnapshot(
             IndicatorState.Fault,
-            isRestart ? "重启超时" : "启动超时",
+            isRestart ? T(TextId.RestartTimeout) : T(TextId.StartupTimeout),
             BuildObservationDetail(observation, elapsed, _latchedFaultReason),
             observation);
         return Current;
@@ -428,26 +438,26 @@ internal sealed class VmStateTracker
         };
     }
 
-    private static string BuildCriticalReason(VmObservation observation)
+    private string BuildCriticalReason(VmObservation observation)
     {
         StringBuilder builder = new();
         builder.Append("EnabledState=").Append(observation.EnabledState?.ToString() ?? "null");
-        builder.Append("，HealthState=").Append(observation.HealthState?.ToString() ?? "null");
+        builder.Append(", HealthState=").Append(observation.HealthState?.ToString() ?? "null");
 
         if (observation.OperationalStatus.Length > 0)
         {
-            builder.Append("，OperationalStatus=").Append(string.Join(",", observation.OperationalStatus));
+            builder.Append(", OperationalStatus=").Append(string.Join(",", observation.OperationalStatus));
         }
 
         if (observation.StatusDescriptions.Length > 0)
         {
-            builder.Append("（").Append(string.Join("；", observation.StatusDescriptions)).Append('）');
+            builder.Append(" (").Append(string.Join("; ", observation.StatusDescriptions)).Append(')');
         }
 
         return builder.ToString();
     }
 
-    private static string BuildObservationDetail(
+    private string BuildObservationDetail(
         VmObservation observation,
         TimeSpan? elapsed = null,
         string? prefix = null)
@@ -458,35 +468,35 @@ internal sealed class VmStateTracker
             builder.Append(prefix).AppendLine();
         }
 
-        builder.Append("Hyper-V: ").Append(observation.HyperVStateText);
-        builder.Append(" | HealthState: ").Append(observation.HealthState?.ToString() ?? "未知");
+        builder.Append("Hyper-V: ").Append(observation.FormatHyperVStateText(Language));
+        builder.Append(" | ").Append(T(TextId.HealthStateLabel)).Append(": ").Append(observation.HealthState?.ToString() ?? T(TextId.Unknown));
         builder.AppendLine();
-        builder.Append("Heartbeat: ").Append(observation.HeartbeatText);
+        builder.Append(T(TextId.HeartbeatLabel)).Append(": ").Append(observation.FormatHeartbeatText(Language));
 
         if (observation.HeartbeatDescriptions.Length > 0)
         {
-            builder.Append("（").Append(string.Join("；", observation.HeartbeatDescriptions)).Append('）');
+            builder.Append(" (").Append(string.Join("; ", observation.HeartbeatDescriptions)).Append(')');
         }
 
         if (observation.PingSucceeded is not null)
         {
             builder.AppendLine();
-            builder.Append("Ping: ").Append(observation.PingSucceeded == true ? "成功" : "失败");
+            builder.Append(T(TextId.PingLabel)).Append(": ").Append(observation.PingSucceeded == true ? T(TextId.PingSucceeded) : T(TextId.PingFailed));
             if (observation.PingRoundtripMilliseconds is not null)
             {
-                builder.Append("，").Append(observation.PingRoundtripMilliseconds).Append(" ms");
+                builder.Append(", ").Append(observation.PingRoundtripMilliseconds).Append(" ms");
             }
             else if (!string.IsNullOrWhiteSpace(observation.PingError))
             {
-                builder.Append("（").Append(observation.PingError).Append('）');
+                builder.Append(" (").Append(observation.PingError).Append(')');
             }
         }
 
         builder.AppendLine();
-        builder.Append("Uptime: ").Append(FormatDuration(TimeSpan.FromMilliseconds(observation.UptimeMilliseconds)));
+        builder.Append(T(TextId.UptimeLabel)).Append(": ").Append(FormatDuration(TimeSpan.FromMilliseconds(observation.UptimeMilliseconds)));
         if (elapsed is not null)
         {
-            builder.Append(" | 当前阶段: ").Append(FormatDuration(elapsed.Value));
+            builder.Append(" | ").Append(T(TextId.CurrentStageLabel)).Append(": ").Append(FormatDuration(elapsed.Value));
         }
 
         return builder.ToString();

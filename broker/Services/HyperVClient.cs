@@ -13,7 +13,7 @@ internal sealed class HyperVClient
     private const ushort AutomaticStartupActionStartIfRunning = 3;
     private const ushort AutomaticStartupActionAlwaysStart = 4;
 
-    public VmObservation Observe(VmConfig config)
+    public VmObservation Observe(VmConfig config, AppLanguage language)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
@@ -28,7 +28,7 @@ internal sealed class HyperVClient
                     ObservedAtUtc = now,
                     MonitoringSucceeded = true,
                     Exists = false,
-                    MonitoringError = $"找不到名为 {config.Name} 的虚拟机。"
+                    MonitoringError = AppText.Format(language, TextId.VmNamedNotFound, config.Name)
                 };
             }
 
@@ -85,43 +85,43 @@ internal sealed class HyperVClient
                 ObservedAtUtc = now,
                 MonitoringSucceeded = false,
                 Exists = false,
-                MonitoringError = FormatManagementError(ex)
+                MonitoringError = FormatManagementError(ex, language)
             };
         }
     }
 
-    public void Start(string vmName) => RequestStateChange(vmName, requestedState: 2);
+    public void Start(string vmName, AppLanguage language) => RequestStateChange(vmName, requestedState: 2, language);
 
-    public void TurnOff(string vmName) => RequestStateChange(vmName, requestedState: 3);
+    public void TurnOff(string vmName, AppLanguage language) => RequestStateChange(vmName, requestedState: 3, language);
 
-    public void Reset(string vmName) => RequestStateChange(vmName, requestedState: 11);
+    public void Reset(string vmName, AppLanguage language) => RequestStateChange(vmName, requestedState: 11, language);
 
-    public void ShutDownGuest(string vmName) => InvokeShutdownComponent(vmName, "InitiateShutdown");
+    public void ShutDownGuest(string vmName, AppLanguage language) => InvokeShutdownComponent(vmName, "InitiateShutdown", language);
 
-    public void RestartGuest(string vmName) => InvokeShutdownComponent(vmName, "InitiateReboot");
+    public void RestartGuest(string vmName, AppLanguage language) => InvokeShutdownComponent(vmName, "InitiateReboot", language);
 
-    public void SetStartupPolicy(string vmName, VmStartupPolicy policy, int? delaySeconds)
+    public void SetStartupPolicy(string vmName, VmStartupPolicy policy, int? delaySeconds, AppLanguage language)
     {
         if (policy == VmStartupPolicy.Unknown)
         {
-            throw new ArgumentOutOfRangeException(nameof(policy), "Unknown is not a writable startup policy.");
+            throw new ArgumentOutOfRangeException(nameof(policy), AppText.Get(language, TextId.UnknownStartupPolicyNotWritable));
         }
 
         if (policy != VmStartupPolicy.Disabled && delaySeconds is null)
         {
-            throw new ArgumentException("AutomaticStartDelay is required when automatic startup is enabled.", nameof(delaySeconds));
+            throw new ArgumentException(AppText.Get(language, TextId.AutomaticStartDelayRequiredWhenEnabled), nameof(delaySeconds));
         }
 
         if (delaySeconds is < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(delaySeconds), "AutomaticStartDelay must be zero or greater.");
+            throw new ArgumentOutOfRangeException(nameof(delaySeconds), AppText.Get(language, TextId.AutomaticStartDelayMustBeZeroOrGreater));
         }
 
         ManagementScope scope = CreateConnectedScope();
         using ManagementObject vm = FindVirtualMachine(scope, vmName)
-            ?? throw new InvalidOperationException($"Virtual machine was not found: {vmName}.");
+            ?? throw new InvalidOperationException(AppText.Format(language, TextId.VirtualMachineNotFound, vmName));
         using ManagementObject settings = GetActiveVirtualSystemSettingData(vm)
-            ?? throw new InvalidOperationException("The active virtual machine settings were not found.");
+            ?? throw new InvalidOperationException(AppText.Get(language, TextId.ActiveVmSettingsNotFound));
 
         settings["AutomaticStartupAction"] = ToAutomaticStartupAction(policy);
         if (policy != VmStartupPolicy.Disabled)
@@ -133,12 +133,12 @@ internal sealed class HyperVClient
         using ManagementBaseObject input = service.GetMethodParameters("ModifySystemSettings");
         input["SystemSettings"] = settings.GetText(TextFormat.CimDtd20);
         using ManagementBaseObject output = service.InvokeMethod("ModifySystemSettings", input, null)
-            ?? throw new InvalidOperationException("Hyper-V did not return a ModifySystemSettings result.");
+            ?? throw new InvalidOperationException(AppText.Get(language, TextId.HyperVNoModifyResult));
 
         uint result = Convert.ToUInt32(output["ReturnValue"], CultureInfo.InvariantCulture);
         if (result is not 0 and not 4096)
         {
-            throw new InvalidOperationException($"Hyper-V ModifySystemSettings failed. ReturnValue={result}.");
+            throw new InvalidOperationException(AppText.Format(language, TextId.HyperVModifyFailed, result));
         }
     }
 
@@ -283,21 +283,21 @@ internal sealed class HyperVClient
         }
     }
 
-    private static void RequestStateChange(string vmName, ushort requestedState)
+    private static void RequestStateChange(string vmName, ushort requestedState, AppLanguage language)
     {
         ManagementScope scope = CreateConnectedScope();
         using ManagementObject vm = FindVirtualMachine(scope, vmName)
-            ?? throw new InvalidOperationException($"找不到虚拟机 {vmName}。");
+            ?? throw new InvalidOperationException(AppText.Format(language, TextId.VmNotFoundReason, vmName));
 
         using ManagementBaseObject input = vm.GetMethodParameters("RequestStateChange");
         input["RequestedState"] = requestedState;
         using ManagementBaseObject output = vm.InvokeMethod("RequestStateChange", input, null)
-            ?? throw new InvalidOperationException("Hyper-V 没有返回操作结果。");
+            ?? throw new InvalidOperationException(AppText.Get(language, TextId.HyperVNoOperationResult));
 
         uint result = Convert.ToUInt32(output["ReturnValue"], CultureInfo.InvariantCulture);
         if (result is not 0 and not 4096)
         {
-            throw new InvalidOperationException($"Hyper-V RequestStateChange 失败，返回码：{result}。");
+            throw new InvalidOperationException(AppText.Format(language, TextId.HyperVRequestStateChangeFailed, result));
         }
     }
 
@@ -361,11 +361,11 @@ internal sealed class HyperVClient
         _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, "Unsupported VM startup policy.")
     };
 
-    private static void InvokeShutdownComponent(string vmName, string methodName)
+    private static void InvokeShutdownComponent(string vmName, string methodName, AppLanguage language)
     {
         ManagementScope scope = CreateConnectedScope();
         using ManagementObject vm = FindVirtualMachine(scope, vmName)
-            ?? throw new InvalidOperationException($"找不到虚拟机 {vmName}。");
+            ?? throw new InvalidOperationException(AppText.Format(language, TextId.VmNotFoundReason, vmName));
 
         using ManagementObjectCollection related = vm.GetRelated(
             relatedClass: "Msvm_ShutdownComponent",
@@ -385,19 +385,19 @@ internal sealed class HyperVClient
                 input["Force"] = false;
                 input["Reason"] = "Requested from HyperVStatusTray";
                 using ManagementBaseObject output = shutdown.InvokeMethod(methodName, input, null)
-                    ?? throw new InvalidOperationException("Hyper-V 没有返回操作结果。");
+                    ?? throw new InvalidOperationException(AppText.Get(language, TextId.HyperVNoOperationResult));
 
                 uint result = Convert.ToUInt32(output["ReturnValue"], CultureInfo.InvariantCulture);
                 if (result is not 0 and not 4096)
                 {
-                    throw new InvalidOperationException($"{methodName} 失败，返回码：{result}。请检查 Shutdown 集成服务。");
+                    throw new InvalidOperationException(AppText.Format(language, TextId.ShutdownComponentFailed, methodName, result));
                 }
 
                 return;
             }
         }
 
-        throw new InvalidOperationException("未找到 Hyper-V Shutdown 集成服务；无法执行客户机内的正常关机/重启。");
+        throw new InvalidOperationException(AppText.Get(language, TextId.ShutdownComponentMissing));
     }
 
     private static ushort? ReadUInt16(ManagementBaseObject obj, string propertyName)
@@ -448,23 +448,23 @@ internal sealed class HyperVClient
         Timeout = TimeSpan.FromSeconds(5)
     };
 
-    private static string FormatManagementError(Exception exception)
+    private static string FormatManagementError(Exception exception, AppLanguage language)
     {
         if (exception is UnauthorizedAccessException)
         {
-            return "访问 Hyper-V WMI 被拒绝。请确认 HyperVStatusTrayBroker 服务账户属于 Hyper-V Administrators 组。";
+            return AppText.Get(language, TextId.HyperVWmiAccessDenied);
         }
 
         if (exception is ManagementException managementException)
         {
             if (managementException.ErrorCode == ManagementStatus.AccessDenied)
             {
-                return "访问 Hyper-V WMI 被拒绝。请确认 HyperVStatusTrayBroker 服务账户属于 Hyper-V Administrators 组。";
+                return AppText.Get(language, TextId.HyperVWmiAccessDenied);
             }
 
-            return $"Hyper-V WMI 查询失败：{managementException.ErrorCode} — {managementException.Message}";
+            return AppText.Format(language, TextId.HyperVWmiQueryFailed, managementException.ErrorCode, managementException.Message);
         }
 
-        return $"Hyper-V 监控失败：{exception.Message}";
+        return AppText.Format(language, TextId.HyperVMonitoringFailed, exception.Message);
     }
 }

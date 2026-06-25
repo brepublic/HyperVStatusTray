@@ -6,7 +6,8 @@ public enum BrokerCommand
     GetSnapshot,
     ExecuteVmAction,
     ReloadConfig,
-    SetVmStartupPolicy
+    SetVmStartupPolicy,
+    SetLanguage
 }
 
 public enum VmAction
@@ -31,6 +32,8 @@ public sealed record BrokerRequest
     public VmStartupPolicy? StartupPolicy { get; init; }
 
     public int? AutomaticStartDelaySeconds { get; init; }
+
+    public AppLanguage? Language { get; init; }
 }
 
 public sealed record BrokerResponse

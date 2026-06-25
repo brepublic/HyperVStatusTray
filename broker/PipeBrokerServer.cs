@@ -79,7 +79,7 @@ internal sealed class PipeBrokerServer : IDisposable
             catch (Exception ex)
             {
                 pipe?.Dispose();
-                Logger.Error("接受 Pipe 连接失败。", ex);
+                Logger.Error(T(TextId.PipeAcceptFailed), ex);
                 await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
             }
         }
@@ -100,10 +100,10 @@ internal sealed class PipeBrokerServer : IDisposable
             clientDescription = authorization.Description;
             if (!authorization.IsAuthorized)
             {
-                Logger.Warning($"拒绝未授权 Pipe 客户端。Client={clientDescription}");
+                Logger.Warning(F(TextId.PipeUnauthorizedClientLog, clientDescription));
                 await BrokerProtocol.WriteMessageAsync(
                     pipe,
-                    BrokerResponse.Fail(request.RequestId, authorization.FailureMessage ?? "Pipe 客户端未授权。"),
+                    BrokerResponse.Fail(request.RequestId, authorization.FailureMessage ?? T(TextId.PipeUnauthorizedClient)),
                     requestCancellation.Token).ConfigureAwait(false);
                 return;
             }
@@ -117,26 +117,26 @@ internal sealed class PipeBrokerServer : IDisposable
         }
         catch (OperationCanceledException)
         {
-            Logger.Warning($"Pipe 客户端请求超时。Client={clientDescription}");
+            Logger.Warning(F(TextId.PipeClientRequestTimedOut, clientDescription));
             if (request is not null)
             {
-                await TryWriteFailureAsync(pipe, request.RequestId, "Broker 请求超时。", cancellationToken).ConfigureAwait(false);
+                await TryWriteFailureAsync(pipe, request.RequestId, T(TextId.PipeRequestTimedOut), cancellationToken).ConfigureAwait(false);
             }
         }
         catch (EndOfStreamException ex)
         {
-            Logger.Warning($"Pipe 客户端在发送完整请求前断开。Client={clientDescription}; {ex.Message}");
+            Logger.Warning(F(TextId.PipeClientDisconnected, clientDescription, ex.Message));
         }
         catch (IOException ex)
         {
-            Logger.Warning($"Pipe 客户端通信中断。Client={clientDescription}; {ex.Message}");
+            Logger.Warning(F(TextId.PipeClientIoInterrupted, clientDescription, ex.Message));
         }
         catch (Exception ex)
         {
-            Logger.Error($"处理 Pipe 客户端失败。Client={clientDescription}", ex);
+            Logger.Error(F(TextId.PipeClientHandlingFailed, clientDescription), ex);
             if (request is not null)
             {
-                await TryWriteFailureAsync(pipe, request.RequestId, "Broker 处理请求失败。", cancellationToken).ConfigureAwait(false);
+                await TryWriteFailureAsync(pipe, request.RequestId, T(TextId.BrokerHandleRequestFailed), cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -153,14 +153,14 @@ internal sealed class PipeBrokerServer : IDisposable
 
         if (clientSid is not null && !sidMatches)
         {
-            return new ClientAuthorization(false, description, "Pipe 客户端用户未授权。");
+            return new ClientAuthorization(false, description, T(TextId.ClientUserUnauthorized));
         }
 
         if (clientPath is not null)
         {
             return IsAuthorizedClientPath(clientPath)
                 ? new ClientAuthorization(true, description, null)
-                : new ClientAuthorization(false, description, "Pipe 客户端程序路径未授权。");
+                : new ClientAuthorization(false, description, T(TextId.ClientPathUnauthorized));
         }
 
         if (sidMatches)
@@ -169,7 +169,7 @@ internal sealed class PipeBrokerServer : IDisposable
             return new ClientAuthorization(true, description, null);
         }
 
-        return new ClientAuthorization(false, description, "无法确认 Pipe 客户端身份。");
+        return new ClientAuthorization(false, description, T(TextId.ClientIdentityUnknown));
     }
 
     private NamedPipeServerStream CreatePipe()
@@ -203,7 +203,7 @@ internal sealed class PipeBrokerServer : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Warning($"无法解析服务账户 SID：{ex.Message}");
+            Logger.Warning(F(TextId.ServiceSidResolveFailed, ex.Message));
         }
 
         return security;
@@ -238,7 +238,7 @@ internal sealed class PipeBrokerServer : IDisposable
             _lastClientPathLookupWarningUtc = now;
         }
 
-        Logger.Warning($"无法读取 Pipe 客户端进程路径，已退回到用户 SID 校验。Client={clientDescription}; Error={error}");
+        Logger.Warning(F(TextId.ClientPathLookupFallback, clientDescription, error));
     }
 
     private static string? TryGetClientUserSid(NamedPipeServerStream pipe, out string? error)
@@ -353,6 +353,10 @@ internal sealed class PipeBrokerServer : IDisposable
     }
 
     private sealed record ClientAuthorization(bool IsAuthorized, string Description, string? FailureMessage);
+
+    private string T(TextId id) => AppText.Get(_engine.Language, id);
+
+    private string F(TextId id, params object?[] args) => AppText.Format(_engine.Language, id, args);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint clientProcessId);

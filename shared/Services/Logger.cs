@@ -27,7 +27,7 @@ public static class Logger
             // Logging must never prevent the application from starting.
         }
 
-        Info("程序启动。");
+        Info(AppText.Get(AppText.DefaultLanguage, TextId.ProgramStartedLog));
     }
 
     public static void Info(string message) => Write("INFO", message, null);

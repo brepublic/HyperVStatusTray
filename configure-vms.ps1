@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$ConfigPath = (Join-Path $env:ProgramData 'HyperVStatusTray\config.json')
+    [string]$ConfigPath = (Join-Path $env:ProgramData 'HyperVStatusTray\config.json'),
+    [ValidateSet('English', 'SimplifiedChinese', 'TraditionalChinese')]
+    [string]$Language = 'SimplifiedChinese'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +59,7 @@ function Get-HyperVVirtualMachineNames {
 
 function New-DefaultConfig {
     [ordered]@{
+        Language = $Language
         PollIntervalSeconds = 5
         StartupTimeoutSeconds = 180
         SignalLossGraceSeconds = 20
@@ -75,6 +78,7 @@ function Read-ExistingConfig {
     try {
         $Config = Get-Content -Raw -Encoding UTF8 -Path $Path | ConvertFrom-Json
         return [ordered]@{
+            Language = if ($null -ne $Config.Language) { [string]$Config.Language } else { $Language }
             PollIntervalSeconds = if ($null -ne $Config.PollIntervalSeconds) { [int]$Config.PollIntervalSeconds } else { 5 }
             StartupTimeoutSeconds = if ($null -ne $Config.StartupTimeoutSeconds) { [int]$Config.StartupTimeoutSeconds } else { 180 }
             SignalLossGraceSeconds = if ($null -ne $Config.SignalLossGraceSeconds) { [int]$Config.SignalLossGraceSeconds } else { 20 }

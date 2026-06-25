@@ -2,6 +2,8 @@
 param(
     [switch]$FrameworkDependent,
     [switch]$DoNotStart,
+    [ValidateSet('English', 'SimplifiedChinese', 'TraditionalChinese')]
+    [string]$Language = 'SimplifiedChinese',
     [Parameter(DontShow = $true)]
     [switch]$UseInstalledFiles,
     [Parameter(DontShow = $true)]
@@ -93,7 +95,12 @@ function Start-ElevatedScript {
         Sort-Object Key |
         ForEach-Object {
             $NameLiteral = ConvertTo-PowerShellSingleQuotedString -Value $_.Key
-            $ValueLiteral = if ($_.Value) { '$true' } else { '$false' }
+            $ValueLiteral = if ($_.Value -is [bool]) {
+                if ($_.Value) { '$true' } else { '$false' }
+            }
+            else {
+                ConvertTo-PowerShellSingleQuotedString -Value ([string]$_.Value)
+            }
             "$NameLiteral = $ValueLiteral"
         })
     $ScriptParameterHashtableLiteral = '@{' + ($ParameterEntries -join '; ') + '}'
@@ -187,6 +194,7 @@ if (-not (Test-IsAdministrator)) {
     if ($FrameworkDependent) { $ScriptParameters.FrameworkDependent = $true }
     if ($DoNotStart) { $ScriptParameters.DoNotStart = $true }
     if ($UseInstalledFiles) { $ScriptParameters.UseInstalledFiles = $true }
+    if ($Language -ne 'SimplifiedChinese') { $ScriptParameters.Language = $Language }
     Start-ElevatedScript -ScriptParameters $ScriptParameters
     return
 }
@@ -260,7 +268,7 @@ if (-not (Test-Path $ConfigureScript)) {
     throw "Configuration script not found: $ConfigureScript"
 }
 
-& $ConfigureScript -ConfigPath $ConfigPath
+& $ConfigureScript -ConfigPath $ConfigPath -Language $Language
 
 $SecurityConfig = [ordered]@{
     AllowedUserSid = $CurrentUserSid
