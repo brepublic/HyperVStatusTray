@@ -10,6 +10,7 @@ Windows 11 上的 Hyper-V 虚拟机托盘状态指示器。
 - 绿色：Heartbeat 正常，或配置的 ICMP Ping 成功
 - 红色：启动超时、启动后掉回 Off、Hyper-V 关键故障、虚拟机不存在
 - 蓝色带斜线：broker 服务不可用或监控未知
+- 可在托盘菜单中查看并配置每台虚拟机的 Hyper-V 自动启动策略
 
 ## 架构
 
@@ -50,6 +51,7 @@ NT SERVICE\HyperVStatusTrayBroker
 - 强制关闭电源
 - 强制重置
 - 重新加载配置
+- 读取和配置已监控虚拟机的自动启动策略及 `AutomaticStartDelay`
 
 broker 不接受任意 PowerShell、任意 WMI 查询、任意 VM 名称、硬盘/网络/安全设置修改。服务端还会校验 Pipe 客户端进程路径，只接受安装目录中的 `HyperVStatusTray.exe`。
 
@@ -174,6 +176,8 @@ broker 读取：
 - 强制关闭电源
 - 强制重置
 - 清除故障锁存
+- 当前自动启动策略：显示 `不自动启动`、`如果之前正在运行则自动启动` 或 `始终自动启动`
+- 配置虚拟机自动启动策略：通过 broker 修改 Hyper-V 的 `AutomaticStartupAction`；选择自动启动类策略时可同时设置 `AutomaticStartDelay`
 
 强制关闭和强制重置会二次确认。连接控制台由托盘进程直接启动 `vmconnect.exe localhost <VM 名称>`，服务不会在 Session 0 打开 UI。
 
