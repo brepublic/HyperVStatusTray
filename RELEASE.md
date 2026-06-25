@@ -44,7 +44,7 @@ the target PC.
 The installer:
 
 - installs files to `C:\Program Files\HyperVStatusTray`
-- runs `install.ps1 -UseInstalledFiles -DoNotStart` with administrator rights
+- runs `install.ps1 -UseInstalledFiles -DoNotStart -Language <selected language>` with administrator rights
 - configures the `HyperVStatusTrayBroker` Windows Service
 - writes the current-user startup entry
 - offers to launch `HyperVStatusTray.exe` after install

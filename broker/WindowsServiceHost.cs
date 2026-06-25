@@ -29,7 +29,10 @@ internal static class WindowsServiceHost
 
         if (!StartServiceCtrlDispatcher(serviceTable))
         {
-            throw new InvalidOperationException($"无法连接 Windows Service Control Manager，Win32Error={Marshal.GetLastWin32Error()}。");
+            throw new InvalidOperationException(AppText.Format(
+                AppText.DefaultLanguage,
+                TextId.ServiceControlManagerConnectFailed,
+                Marshal.GetLastWin32Error()));
         }
     }
 
@@ -49,7 +52,7 @@ internal static class WindowsServiceHost
             Logger.Initialize(AppPaths.MachineDataDirectory, "HyperVStatusTrayBroker.log");
             _server = new PipeBrokerServer();
             _server.Start();
-            Logger.Info("Broker 服务已启动。");
+            Logger.Info(AppText.Get(AppText.DefaultLanguage, TextId.BrokerServiceStarted));
             SetStatus(ServiceState.Running, ServiceAcceptStop | ServiceAcceptShutdown);
 
             StopRequested.Wait();
@@ -58,12 +61,12 @@ internal static class WindowsServiceHost
             _server.StopAsync().GetAwaiter().GetResult();
             _server.Dispose();
             _server = null;
-            Logger.Info("Broker 服务已停止。");
+            Logger.Info(AppText.Get(AppText.DefaultLanguage, TextId.BrokerServiceStopped));
             SetStatus(ServiceState.Stopped, controlsAccepted: 0);
         }
         catch (Exception ex)
         {
-            Logger.Error("Broker 服务发生致命错误。", ex);
+            Logger.Error(AppText.Get(AppText.DefaultLanguage, TextId.BrokerServiceFatalError), ex);
             SetStatus(ServiceState.Stopped, controlsAccepted: 0, win32ExitCode: 1);
         }
     }

@@ -2,10 +2,11 @@ namespace HyperVStatusTray.UI;
 
 internal sealed class VmStartupPolicyDialog : Form
 {
-    private readonly RadioButton _disabledOption = new() { Text = "不自动启动", AutoSize = true };
-    private readonly RadioButton _startIfRunningOption = new() { Text = "如果之前正在运行则自动启动", AutoSize = true };
-    private readonly RadioButton _alwaysStartOption = new() { Text = "始终自动启动", AutoSize = true };
-    private readonly Label _delayLabel = new() { Text = "AutomaticStartDelay（秒）", AutoSize = true, Anchor = AnchorStyles.Left };
+    private readonly AppLanguage _language;
+    private readonly RadioButton _disabledOption = new() { AutoSize = true };
+    private readonly RadioButton _startIfRunningOption = new() { AutoSize = true };
+    private readonly RadioButton _alwaysStartOption = new() { AutoSize = true };
+    private readonly Label _delayLabel = new() { AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly NumericUpDown _delayInput = new()
     {
         Minimum = 0,
@@ -13,11 +14,17 @@ internal sealed class VmStartupPolicyDialog : Form
         Width = 120,
         Anchor = AnchorStyles.Left
     };
-    private readonly Button _okButton = new() { Text = "确定", DialogResult = DialogResult.OK, AutoSize = true };
+    private readonly Button _okButton = new() { DialogResult = DialogResult.OK, AutoSize = true };
 
-    public VmStartupPolicyDialog(string vmLabel, VmStartupPolicy currentPolicy, int? currentDelaySeconds)
+    public VmStartupPolicyDialog(AppLanguage language, string vmLabel, VmStartupPolicy currentPolicy, int? currentDelaySeconds)
     {
-        Text = $"配置自动启动策略 - {vmLabel}";
+        _language = AppText.Normalize(language);
+        Text = F(TextId.ConfigureStartupPolicyTitle, vmLabel);
+        _disabledOption.Text = T(TextId.StartupPolicyDisabled);
+        _startIfRunningOption.Text = T(TextId.StartupPolicyStartIfRunning);
+        _alwaysStartOption.Text = T(TextId.StartupPolicyAlwaysStart);
+        _delayLabel.Text = T(TextId.DialogAutomaticStartDelay);
+        _okButton.Text = T(TextId.ButtonOk);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -64,7 +71,7 @@ internal sealed class VmStartupPolicyDialog : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(0, 12, 0, 0)
         };
-        Button cancelButton = new() { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
+        Button cancelButton = new() { Text = T(TextId.ButtonCancel), DialogResult = DialogResult.Cancel, AutoSize = true };
         buttons.Controls.Add(cancelButton);
         buttons.Controls.Add(_okButton);
         layout.Controls.Add(buttons, 0, 6);
@@ -125,4 +132,8 @@ internal sealed class VmStartupPolicyDialog : Form
         _delayInput.Visible = delayVisible;
         _okButton.Enabled = SelectedPolicy != VmStartupPolicy.Unknown;
     }
+
+    private string T(TextId id) => AppText.Get(_language, id);
+
+    private string F(TextId id, params object?[] args) => AppText.Format(_language, id, args);
 }

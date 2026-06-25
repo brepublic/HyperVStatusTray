@@ -9,12 +9,14 @@ internal sealed class BrokerClient
     private const int ConnectTimeoutMilliseconds = 3000;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
 
+    public AppLanguage Language { get; set; } = AppText.DefaultLanguage;
+
     public async Task<BrokerSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
         BrokerResponse response = await SendAsync(
             new BrokerRequest { Command = BrokerCommand.GetSnapshot },
             cancellationToken);
-        return response.Snapshot ?? throw new InvalidOperationException("Broker 没有返回状态快照。");
+        return response.Snapshot ?? throw new InvalidOperationException(T(TextId.BrokerNoSnapshot));
     }
 
     public async Task<BrokerSnapshot> ExecuteVmActionAsync(int vmIndex, VmAction action, CancellationToken cancellationToken)
@@ -27,7 +29,7 @@ internal sealed class BrokerClient
                 Action = action
             },
             cancellationToken);
-        return response.Snapshot ?? throw new InvalidOperationException("Broker 没有返回操作后的状态快照。");
+        return response.Snapshot ?? throw new InvalidOperationException(T(TextId.BrokerNoActionSnapshot));
     }
 
     public async Task<BrokerSnapshot> ReloadConfigAsync(CancellationToken cancellationToken)
@@ -35,7 +37,7 @@ internal sealed class BrokerClient
         BrokerResponse response = await SendAsync(
             new BrokerRequest { Command = BrokerCommand.ReloadConfig },
             cancellationToken);
-        return response.Snapshot ?? throw new InvalidOperationException("Broker 没有返回重新加载后的状态快照。");
+        return response.Snapshot ?? throw new InvalidOperationException(T(TextId.BrokerNoReloadSnapshot));
     }
 
     public async Task<BrokerSnapshot> SetVmStartupPolicyAsync(
@@ -53,10 +55,22 @@ internal sealed class BrokerClient
                 AutomaticStartDelaySeconds = automaticStartDelaySeconds
             },
             cancellationToken);
-        return response.Snapshot ?? throw new InvalidOperationException("Broker 没有返回更新后的状态快照。");
+        return response.Snapshot ?? throw new InvalidOperationException(T(TextId.BrokerNoStartupPolicySnapshot));
     }
 
-    private static async Task<BrokerResponse> SendAsync(BrokerRequest request, CancellationToken cancellationToken)
+    public async Task<BrokerSnapshot> SetLanguageAsync(AppLanguage language, CancellationToken cancellationToken)
+    {
+        BrokerResponse response = await SendAsync(
+            new BrokerRequest
+            {
+                Command = BrokerCommand.SetLanguage,
+                Language = language
+            },
+            cancellationToken);
+        return response.Snapshot ?? throw new InvalidOperationException(T(TextId.BrokerNoLanguageSnapshot));
+    }
+
+    private async Task<BrokerResponse> SendAsync(BrokerRequest request, CancellationToken cancellationToken)
     {
         using CancellationTokenSource requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         requestCancellation.CancelAfter(RequestTimeout);
@@ -75,19 +89,21 @@ internal sealed class BrokerClient
             BrokerResponse response = await BrokerProtocol.ReadMessageAsync<BrokerResponse>(pipe, requestCancellation.Token).ConfigureAwait(false);
             if (response.RequestId != request.RequestId)
             {
-                throw new InvalidOperationException("Broker 返回了不匹配的响应。");
+                throw new InvalidOperationException(T(TextId.BrokerMismatchedResponse));
             }
 
             if (!response.Success)
             {
-                throw new InvalidOperationException(response.Error ?? "Broker 请求失败。");
+                throw new InvalidOperationException(response.Error ?? T(TextId.BrokerRequestFailed));
             }
 
             return response;
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("Broker 请求超时。", ex);
+            throw new TimeoutException(T(TextId.BrokerRequestTimedOut), ex);
         }
     }
+
+    private string T(TextId id) => AppText.Get(Language, id);
 }

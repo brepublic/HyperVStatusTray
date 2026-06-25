@@ -23,13 +23,15 @@ public sealed record VmStatusSnapshot
 
     public DateTimeOffset UpdatedAtUtc { get; init; }
 
-    public string IndicatorText => Indicator switch
+    public string IndicatorText => FormatIndicatorText(AppText.DefaultLanguage);
+
+    public string FormatIndicatorText(AppLanguage language) => Indicator switch
     {
-        IndicatorState.Off => "已关闭",
-        IndicatorState.Starting => "启动中/未就绪",
-        IndicatorState.Ready => "已就绪",
-        IndicatorState.Fault => "故障",
-        IndicatorState.Unknown => "监控未知",
-        _ => "未知"
+        IndicatorState.Off => AppText.Get(language, TextId.IndicatorOff),
+        IndicatorState.Starting => AppText.Get(language, TextId.IndicatorStarting),
+        IndicatorState.Ready => AppText.Get(language, TextId.IndicatorReady),
+        IndicatorState.Fault => AppText.Get(language, TextId.IndicatorFault),
+        IndicatorState.Unknown => AppText.Get(language, TextId.IndicatorUnknown),
+        _ => AppText.Get(language, TextId.Unknown)
     };
 }

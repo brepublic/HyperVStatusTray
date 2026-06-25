@@ -74,11 +74,13 @@ public sealed record VmObservation
         IsPaused ||
         EnabledState is 32771 or 32776;
 
-    public string HyperVStateText => EnabledState switch
+    public string HyperVStateText => FormatHyperVStateText(AppText.DefaultLanguage);
+
+    public string FormatHyperVStateText(AppLanguage language) => EnabledState switch
     {
-        null => "未知",
-        0 => "未知",
-        1 => "其他",
+        null => AppText.Get(language, TextId.Unknown),
+        0 => AppText.Get(language, TextId.Unknown),
+        1 => AppText.Get(language, TextId.Other),
         2 => "Running",
         3 => "Off",
         4 => "Shutting down",
@@ -101,16 +103,20 @@ public sealed record VmObservation
         _ => $"State {EnabledState}"
     };
 
-    public string HeartbeatText => Heartbeat switch
+    public string HeartbeatText => FormatHeartbeatText(AppText.DefaultLanguage);
+
+    public string FormatHeartbeatText(AppLanguage language) => Heartbeat switch
     {
-        HeartbeatKind.NotRequested => "未查询",
+        HeartbeatKind.NotRequested => AppText.Get(language, TextId.HeartbeatNotRequested),
         HeartbeatKind.Ok => "OK",
-        HeartbeatKind.Degraded => "Degraded（仍可用）",
+        HeartbeatKind.Degraded => AppText.Get(language, TextId.HeartbeatDegradedUsable),
         HeartbeatKind.NoContact => "No contact",
         HeartbeatKind.LostCommunication => "Lost communication",
         HeartbeatKind.ProtocolError => "Protocol error",
         HeartbeatKind.Paused => "Paused",
-        HeartbeatKind.Missing => "未发现组件",
-        _ => HeartbeatCode is null ? "未知" : $"未知 ({HeartbeatCode})"
+        HeartbeatKind.Missing => AppText.Get(language, TextId.HeartbeatMissingComponent),
+        _ => HeartbeatCode is null
+            ? AppText.Get(language, TextId.Unknown)
+            : AppText.Format(language, TextId.HeartbeatUnknownWithCode, HeartbeatCode)
     };
 }

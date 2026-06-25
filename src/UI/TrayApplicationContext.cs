@@ -21,6 +21,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private List<VmMenuBinding> _vmMenus = [];
     private ContextMenuStrip? _contextMenu;
     private ToolStripMenuItem? _startupMenuItem;
+    private ToolStripMenuItem? _languageMenuItem;
     private bool _suppressStartupToggle;
     private Icon? _currentIcon;
     private string? _lastTrayIndicatorSignature;
@@ -40,7 +41,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Visible = true,
-            Text = "Hyper-V 状态指示器"
+            Text = T(TextId.TrayTitle)
         };
         _notifyIcon.DoubleClick += (_, _) => ShowDetails();
 
@@ -67,12 +68,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _currentIcon?.Dispose();
         DisposeMenuImages();
         _contextMenu?.Dispose();
-        Logger.Info("程序退出。");
+        Logger.Info(T(TextId.ExitLog));
         base.ExitThreadCore();
     }
 
     private static List<VmStateTracker> CreateTrackers(AppConfig config) =>
         config.VirtualMachines.Select(vm => new VmStateTracker(config, vm)).ToList();
+
+    private AppLanguage Language => _config.Language;
+
+    private string T(TextId id) => AppText.Get(Language, id);
+
+    private string F(TextId id, params object?[] args) => AppText.Format(Language, id, args);
 
     private async Task PollAsync()
     {
@@ -100,8 +107,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 return;
             }
 
-            Logger.Error("轮询状态时发生未处理异常。", ex);
-            ApplyBrokerFailure($"无法连接或访问 HyperVStatusTrayBroker 服务：{ex.Message}");
+            Logger.Error(T(TextId.PollUnhandledLog), ex);
+            ApplyBrokerFailure(F(TextId.BrokerConnectionFailure, ex.Message));
             if (!ShouldShowPollFailureNotification(ex))
             {
                 return;
@@ -111,8 +118,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 _notifyIcon.ShowBalloonTip(
                     5000,
-                    "Hyper-V 状态指示器",
-                    $"状态刷新失败：{ex.Message}",
+                    T(TextId.TrayTitle),
+                    F(TextId.StatusRefreshFailed, ex.Message),
                     ToolTipIcon.Error);
             }
             catch (ObjectDisposedException)
@@ -163,16 +170,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
             int capturedIndex = index;
             VmStateTracker tracker = _trackers[index];
             ToolStripMenuItem root = new(tracker.Config.Label);
-            ToolStripMenuItem status = new("等待状态") { Enabled = false };
-            ToolStripMenuItem startupPolicy = new("当前自动启动策略：未知") { Enabled = false };
-            ToolStripMenuItem configureStartupPolicy = new("配置虚拟机自动启动策略", null, async (_, _) => await ConfigureVmStartupPolicyAsync(capturedIndex));
-            ToolStripMenuItem start = new("启动", null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.Start));
-            ToolStripMenuItem connect = new("连接控制台", null, (_, _) => ConnectToVm(capturedIndex));
-            ToolStripMenuItem shutdown = new("正常关机", null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.ShutDownGuest));
-            ToolStripMenuItem turnOff = new("强制关闭电源…", null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.TurnOff));
-            ToolStripMenuItem restart = new("正常重启", null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.RestartGuest));
-            ToolStripMenuItem reset = new("强制重置…", null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.Reset));
-            ToolStripMenuItem clearFault = new("清除故障锁存", null, (_, _) =>
+            ToolStripMenuItem status = new(T(TextId.WaitingStatus)) { Enabled = false };
+            ToolStripMenuItem startupPolicy = new(T(TextId.CurrentStartupPolicyUnknown)) { Enabled = false };
+            ToolStripMenuItem configureStartupPolicy = new(T(TextId.ConfigureStartupPolicy), null, async (_, _) => await ConfigureVmStartupPolicyAsync(capturedIndex));
+            ToolStripMenuItem start = new(T(TextId.ActionStart), null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.Start));
+            ToolStripMenuItem connect = new(T(TextId.ActionConnect), null, (_, _) => ConnectToVm(capturedIndex));
+            ToolStripMenuItem shutdown = new(T(TextId.ActionShutdown), null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.ShutDownGuest));
+            ToolStripMenuItem turnOff = new(T(TextId.ActionTurnOff), null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.TurnOff));
+            ToolStripMenuItem restart = new(T(TextId.ActionRestart), null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.RestartGuest));
+            ToolStripMenuItem reset = new(T(TextId.ActionReset), null, async (_, _) => await ExecuteActionAsync(capturedIndex, VmAction.Reset));
+            ToolStripMenuItem clearFault = new(T(TextId.ClearFault), null, (_, _) =>
             {
                 _trackers[capturedIndex].ClearFault();
                 UpdateVisuals();
@@ -199,17 +206,19 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("查看详细状态", null, (_, _) => ShowDetails());
-        menu.Items.Add("立即刷新", null, async (_, _) => await PollAsync());
-        menu.Items.Add("打开 Hyper-V 管理器", null, (_, _) => StartShell("virtmgmt.msc"));
+        menu.Items.Add(T(TextId.ShowDetails), null, (_, _) => ShowDetails());
+        menu.Items.Add(T(TextId.RefreshNow), null, async (_, _) => await PollAsync());
+        menu.Items.Add(T(TextId.OpenHyperVManager), null, (_, _) => StartShell("virtmgmt.msc"));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("以管理员身份编辑配置文件", null, (_, _) => StartShellElevated("notepad.exe", QuoteArgument(ConfigService.ConfigPath)));
-        menu.Items.Add("重新配置VM监视", null, async (_, _) => await ReconfigureMonitoredVmsAsync());
-        menu.Items.Add("重新加载配置", null, async (_, _) => await ReloadConfigurationAsync());
-        menu.Items.Add("打开配置目录", null, (_, _) => StartShell("explorer.exe", ConfigService.DataDirectory));
-        menu.Items.Add("打开Broker日志目录", null, (_, _) => StartShell("explorer.exe", AppPaths.MachineDataDirectory));
+        menu.Items.Add(T(TextId.EditConfigAsAdmin), null, (_, _) => StartShellElevated("notepad.exe", QuoteArgument(ConfigService.ConfigPath)));
+        menu.Items.Add(T(TextId.ReconfigureVmMonitoring), null, async (_, _) => await ReconfigureMonitoredVmsAsync());
+        menu.Items.Add(T(TextId.ReloadConfig), null, async (_, _) => await ReloadConfigurationAsync());
+        menu.Items.Add(T(TextId.OpenConfigDirectory), null, (_, _) => StartShell("explorer.exe", ConfigService.DataDirectory));
+        menu.Items.Add(T(TextId.OpenBrokerLogDirectory), null, (_, _) => StartShell("explorer.exe", AppPaths.MachineDataDirectory));
+        _languageMenuItem = CreateLanguageMenuItem();
+        menu.Items.Add(_languageMenuItem);
 
-        _startupMenuItem = new ToolStripMenuItem("随 Windows 登录启动")
+        _startupMenuItem = new ToolStripMenuItem(T(TextId.StartWithWindows))
         {
             Checked = StartupManager.IsEnabled(),
             CheckOnClick = true
@@ -217,11 +226,55 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _startupMenuItem.CheckedChanged += StartupMenuItemCheckedChanged;
         menu.Items.Add(_startupMenuItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("退出", null, (_, _) => ExitThread());
+        menu.Items.Add(T(TextId.Exit), null, (_, _) => ExitThread());
 
         menu.Opening += (_, _) => UpdateMenuState();
         _contextMenu = menu;
         _notifyIcon.ContextMenuStrip = menu;
+    }
+
+    private ToolStripMenuItem CreateLanguageMenuItem()
+    {
+        ToolStripMenuItem languageMenu = new(T(TextId.LanguageMenu));
+        foreach (AppLanguage language in AppText.SupportedLanguages)
+        {
+            AppLanguage capturedLanguage = language;
+            ToolStripMenuItem item = new(
+                AppText.LanguageName(language),
+                null,
+                async (_, _) => await SetLanguageAsync(capturedLanguage))
+            {
+                Checked = language == Language,
+                Tag = language
+            };
+            languageMenu.DropDownItems.Add(item);
+        }
+
+        return languageMenu;
+    }
+
+    private async Task SetLanguageAsync(AppLanguage language)
+    {
+        language = AppText.Normalize(language);
+        if (language == Language)
+        {
+            return;
+        }
+
+        try
+        {
+            BrokerSnapshot snapshot = await _brokerClient.SetLanguageAsync(language, _cancellation.Token);
+            ApplyBrokerSnapshot(snapshot);
+            _notifyIcon.ShowBalloonTip(2500, T(TextId.TrayTitle), T(TextId.LanguageUpdated), ToolTipIcon.Info);
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // Normal during application shutdown.
+        }
+        catch (Exception ex)
+        {
+            ShowError(T(TextId.LanguageUpdateFailed), ex);
+        }
     }
 
     private void StartupMenuItemCheckedChanged(object? sender, EventArgs e)
@@ -248,7 +301,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 _suppressStartupToggle = false;
             }
 
-            ShowError("无法修改开机启动设置", ex);
+            ShowError(T(TextId.StartupSettingChangeFailed), ex);
         }
     }
 
@@ -259,13 +312,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             BrokerSnapshot snapshot = await _brokerClient.ReloadConfigAsync(_cancellation.Token);
             ApplyBrokerSnapshot(snapshot);
-            Logger.Info("配置已重新加载。");
+            Logger.Info(T(TextId.ConfigReloadedLog));
         }
         catch (Exception ex)
         {
             MessageBox.Show(
-                $"配置文件重新加载失败，当前配置保持不变。\n\n{ex.Message}",
-                "重新加载配置失败",
+                F(TextId.ConfigReloadFailedMessage, ex.Message),
+                T(TextId.ConfigReloadFailedTitle),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -283,9 +336,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (scriptPath is null)
         {
             ShowError(
-                "无法重新配置VM监视",
+                T(TextId.CannotReconfigureVmMonitoring),
                 new FileNotFoundException(
-                    $"找不到 {ConfigureVmsScriptName}。请确认程序安装目录中包含该脚本。"));
+                    F(TextId.ConfigureScriptMissing, ConfigureVmsScriptName)));
             return;
         }
 
@@ -305,15 +358,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
             if (process.ExitCode != 0)
             {
                 MessageBox.Show(
-                    $"{ConfigureVmsScriptName} 退出代码：{process.ExitCode}\n\n当前配置保持不变；如脚本已写入新配置，请检查后手动选择“重新加载配置”。",
-                    "重新配置VM监视失败",
+                    F(TextId.ConfigureScriptExitMessage, ConfigureVmsScriptName, process.ExitCode),
+                    T(TextId.ReconfigureVmMonitoringFailed),
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return;
             }
 
             await ReloadConfigurationAsync();
-            _notifyIcon.ShowBalloonTip(2500, "Hyper-V 状态指示器", "VM监视配置已更新。", ToolTipIcon.Info);
+            _notifyIcon.ShowBalloonTip(2500, T(TextId.TrayTitle), T(TextId.VmMonitoringConfigUpdated), ToolTipIcon.Info);
         }
         catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
         {
@@ -321,11 +374,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
-            Logger.Info("重新配置VM监视已取消。");
+            Logger.Info(T(TextId.ReconfigureCancelledLog));
         }
         catch (Exception ex)
         {
-            ShowError("无法重新配置VM监视", ex);
+            ShowError(T(TextId.CannotReconfigureVmMonitoring), ex);
         }
     }
 
@@ -338,9 +391,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             DialogResult answer = MessageBox.Show(
                 action == VmAction.TurnOff
-                    ? $"确定立即切断 {vmName} 的虚拟电源吗？客户机中未保存的数据会丢失。"
-                    : $"确定强制重置 {vmName} 吗？效果类似按下实体计算机的 Reset 键，未保存的数据会丢失。",
-                "确认破坏性操作",
+                    ? F(TextId.ConfirmTurnOff, vmName)
+                    : F(TextId.ConfirmReset, vmName),
+                T(TextId.ConfirmDestructiveTitle),
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
                 MessageBoxDefaultButton.Button2);
@@ -378,9 +431,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
                     return;
                 }
 
-                Logger.Info($"{vmName}: 操作 {action} 已被 Hyper-V 接受。");
+                Logger.Info($"{vmName}: {T(TextId.OperationAccepted)} ({action})");
                 ApplyBrokerSnapshot(snapshot);
-                _notifyIcon.ShowBalloonTip(2500, tracker.Config.Label, "操作已被 Hyper-V 接受。", ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(2500, tracker.Config.Label, T(TextId.OperationAccepted), ToolTipIcon.Info);
             }
             catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
             {
@@ -388,15 +441,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
             catch (Exception ex)
             {
-                Logger.Error($"{vmName}: 操作 {action} 失败。", ex);
+                Logger.Error(F(TextId.OperationFailedTitle, $"{vmName}: {action}"), ex);
                 if (action is VmAction.Start or VmAction.RestartGuest or VmAction.Reset)
                 {
-                    string summary = action == VmAction.Start ? "启动失败" : "重启失败";
+                    string summary = action == VmAction.Start ? T(TextId.StartFailed) : T(TextId.RestartFailed);
                     tracker.MarkOperationFailure(summary, ex.Message);
                     UpdateVisuals();
                 }
 
-                ShowError($"{tracker.Config.Label} 操作失败", ex);
+                ShowError(F(TextId.OperationFailedTitle, tracker.Config.Label), ex);
             }
         }
         finally
@@ -412,6 +465,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         VmStateTracker tracker = _trackers[index];
         VmObservation? observation = tracker.Current.Observation;
         using VmStartupPolicyDialog dialog = new(
+            Language,
             tracker.Config.Label,
             observation?.StartupPolicy ?? VmStartupPolicy.Unknown,
             observation?.AutomaticStartDelaySeconds);
@@ -436,7 +490,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
 
             ApplyBrokerSnapshot(snapshot);
-            _notifyIcon.ShowBalloonTip(2500, tracker.Config.Label, "虚拟机自动启动策略已更新。", ToolTipIcon.Info);
+            _notifyIcon.ShowBalloonTip(2500, tracker.Config.Label, T(TextId.StartupPolicyUpdated), ToolTipIcon.Info);
         }
         catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
         {
@@ -444,8 +498,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         catch (Exception ex)
         {
-            Logger.Error($"{tracker.Config.Name}: 更新自动启动策略失败。", ex);
-            ShowError($"{tracker.Config.Label} 自动启动策略更新失败", ex);
+            Logger.Error(F(TextId.StartupPolicyUpdateFailedTitle, tracker.Config.Name), ex);
+            ShowError(F(TextId.StartupPolicyUpdateFailedTitle, tracker.Config.Label), ex);
         }
         finally
         {
@@ -471,7 +525,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         catch (Exception ex)
         {
-            ShowError("无法打开虚拟机连接", ex);
+            ShowError(T(TextId.CannotOpenVmConnect), ex);
         }
     }
 
@@ -493,10 +547,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         string tooltip = _trackers.Count == 0
-            ? "Hyper-V 状态指示器"
+            ? T(TextId.TrayTitle)
             : string.Join(
                 "\n",
-                _trackers.Select(tracker => $"{tracker.Config.Label}: {tracker.Current.IndicatorText}"));
+                _trackers.Select(tracker => $"{tracker.Config.Label}: {tracker.Current.FormatIndicatorText(Language)}"));
         string displayTooltip = tooltip.Length <= 63 ? tooltip : tooltip[..63];
         if (!string.Equals(_lastTooltipText, displayTooltip, StringComparison.Ordinal))
         {
@@ -512,13 +566,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
         int vmCount = snapshot.Config.VirtualMachines.Count;
         if (vmCount is < 1 or > 2 || snapshot.Observations.Length != vmCount)
         {
-            throw new InvalidDataException("Broker 返回的虚拟机状态数量不正确。");
+            throw new InvalidDataException(T(TextId.BrokerSnapshotVmCountInvalid));
         }
 
         string signature = CreateConfigSignature(snapshot.Config);
         if (!string.Equals(_configSignature, signature, StringComparison.Ordinal))
         {
             _config = snapshot.Config;
+            _brokerClient.Language = _config.Language;
             _configSignature = signature;
             _trackers = CreateTrackers(_config);
             _timer.Interval = checked(_config.PollIntervalSeconds * 1000);
@@ -566,7 +621,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             VmMenuBinding binding = _vmMenus[index];
 
             binding.Root.Text = tracker.Config.Label;
-            binding.Status.Text = $"{snapshot.IndicatorText} — {snapshot.Summary}";
+            binding.Status.Text = $"{snapshot.FormatIndicatorText(Language)} - {snapshot.Summary}";
 
             if (binding.Root.Tag is not IndicatorState menuIndicator || menuIndicator != snapshot.Indicator)
             {
@@ -581,7 +636,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             bool running = observation?.IsRunning == true;
             bool powered = observation?.IsPowered == true;
 
-            binding.StartupPolicy.Text = $"当前自动启动策略：{FormatStartupPolicy(observation)}";
+            binding.StartupPolicy.Text = F(TextId.CurrentStartupPolicyFormat, FormatStartupPolicy(observation));
             binding.ConfigureStartupPolicy.Enabled = exists;
             binding.Start.Enabled = exists && offLike;
             binding.Connect.Enabled = exists && powered;
@@ -608,27 +663,38 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 }
             }
         }
+
+        if (_languageMenuItem is not null)
+        {
+            foreach (ToolStripItem item in _languageMenuItem.DropDownItems)
+            {
+                if (item is ToolStripMenuItem languageItem && languageItem.Tag is AppLanguage language)
+                {
+                    languageItem.Checked = language == Language;
+                }
+            }
+        }
     }
 
-    private static string FormatStartupPolicy(VmObservation? observation)
+    private string FormatStartupPolicy(VmObservation? observation)
     {
         if (observation is null || !observation.Exists)
         {
-            return "未知";
+            return T(TextId.StartupPolicyUnknown);
         }
 
         string policyText = observation.StartupPolicy switch
         {
-            VmStartupPolicy.Disabled => "不自动启动",
-            VmStartupPolicy.StartIfRunning => "如果之前正在运行则自动启动",
-            VmStartupPolicy.AlwaysStart => "始终自动启动",
-            _ => "未知"
+            VmStartupPolicy.Disabled => T(TextId.StartupPolicyDisabled),
+            VmStartupPolicy.StartIfRunning => T(TextId.StartupPolicyStartIfRunning),
+            VmStartupPolicy.AlwaysStart => T(TextId.StartupPolicyAlwaysStart),
+            _ => T(TextId.StartupPolicyUnknown)
         };
 
         if (observation.StartupPolicy is VmStartupPolicy.StartIfRunning or VmStartupPolicy.AlwaysStart &&
             observation.AutomaticStartDelaySeconds is not null)
         {
-            return $"{policyText}（延迟 {observation.AutomaticStartDelaySeconds.Value} 秒）";
+            return F(TextId.StartupPolicyWithDelay, policyText, observation.AutomaticStartDelaySeconds.Value);
         }
 
         return policyText;
@@ -640,20 +706,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
             "\n\n",
             _trackers.Select(tracker =>
                 $"{tracker.Config.Label}\n" +
-                $"状态：{tracker.Current.IndicatorText} — {tracker.Current.Summary}\n" +
+                $"{T(TextId.DetailsStatusLabel)}: {tracker.Current.FormatIndicatorText(Language)} - {tracker.Current.Summary}\n" +
                 $"{tracker.Current.Detail}\n" +
-                $"更新时间：{tracker.Current.UpdatedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}"));
+                $"{T(TextId.DetailsUpdatedAtLabel)}: {tracker.Current.UpdatedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}"));
 
         MessageBox.Show(
             text,
-            "Hyper-V 虚拟机状态",
+            T(TextId.DetailsTitle),
             MessageBoxButtons.OK,
             _trackers.Any(tracker => tracker.Current.Indicator == IndicatorState.Fault)
                 ? MessageBoxIcon.Warning
                 : MessageBoxIcon.Information);
     }
 
-    private static void StartShell(string fileName, string? arguments = null)
+    private void StartShell(string fileName, string? arguments = null)
     {
         try
         {
@@ -666,11 +732,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         catch (Exception ex)
         {
-            ShowError($"无法打开 {fileName}", ex);
+            ShowError(F(TextId.CannotOpenFile, fileName), ex);
         }
     }
 
-    private static Process? StartShellElevated(string fileName, string? arguments = null)
+    private Process? StartShellElevated(string fileName, string? arguments = null)
     {
         try
         {
@@ -684,12 +750,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
-            Logger.Info($"以管理员身份打开 {fileName} 已取消。");
+            Logger.Info(F(TextId.AdminOpenCancelled, fileName));
             return null;
         }
         catch (Exception ex)
         {
-            ShowError($"无法以管理员身份打开 {fileName}", ex);
+            ShowError(F(TextId.CannotOpenAsAdmin, fileName), ex);
             return null;
         }
     }
@@ -719,6 +785,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         return string.Join(
             "|",
             config.PollIntervalSeconds,
+            config.Language,
             config.StartupTimeoutSeconds,
             config.SignalLossGraceSeconds,
             config.MonitorFailureThreshold,
@@ -728,10 +795,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
                     string.Join(",", vm.Name, vm.Label, vm.UseHeartbeat, vm.PingAddress, vm.PingTimeoutMilliseconds))));
     }
 
-    private static void ShowError(string title, Exception exception)
+    private void ShowError(string title, Exception exception)
     {
         MessageBox.Show(
-            $"{exception.Message}\n\n详细信息已写入：{Logger.LogPath}",
+            F(TextId.ErrorDetailsWritten, exception.Message, Logger.LogPath),
             title,
             MessageBoxButtons.OK,
             MessageBoxIcon.Error);
